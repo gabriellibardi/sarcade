@@ -1,9 +1,10 @@
 use axum::{Router, routing::get};
-use crate::db::Db;
+use crate::{assets, db::Db};
 
 pub fn router(db: Db) -> Router {
     Router::new()
         .route("/health", get(health))
+        .fallback(assets::serve)
         .with_state(db)
 }
 
