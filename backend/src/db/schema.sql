@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS games (
     title          TEXT NOT NULL,
     description    TEXT NOT NULL,
     source_code    TEXT NOT NULL,
+    min_players    INTEGER NOT NULL DEFAULT 1,
+    max_players    INTEGER NOT NULL DEFAULT 1,
     thumbnail      BLOB,
     author_id      INTEGER REFERENCES users(id),
     status         TEXT NOT NULL DEFAULT 'pending',

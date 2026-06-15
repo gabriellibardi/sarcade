@@ -1,6 +1,7 @@
 mod assets;
 mod config;
 mod db;
+mod models;
 mod routes;
 
 use config::Config;

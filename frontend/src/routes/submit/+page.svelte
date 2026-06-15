@@ -1,126 +1,198 @@
 <script lang="ts">
-	let title = '';
-	let description = '';
-	let sourceCodeFiles: FileList;
-	let thumbnailFiles: FileList;
-	
-	let isSubmitting = false;
-	let statusMessage = '';
-	let isError = false;
+  let title = "";
+  let description = "";
+  let minPlayers = 1;
+  let maxPlayers = 1;
 
-	async function handleSubmit() {
-		isSubmitting = true;
-		statusMessage = '';
-		isError = false;
+  let sourceCodeFiles: FileList | null = null;
+  let thumbnailFiles: FileList | null = null;
 
-		if (!sourceCodeFiles || sourceCodeFiles.length === 0) {
-			statusMessage = 'O arquivo do código fonte (.gleam) é obrigatório.';
-			isError = true;
-			isSubmitting = false;
-			return;
-		}
+  let isSubmitting = false;
+  let statusMessage = "";
+  let isError = false;
 
-		const formData = new FormData();
-		formData.append('title', title);
-		formData.append('description', description);
-		formData.append('source_code', sourceCodeFiles[0]);
+  async function handleSubmit() {
+    isSubmitting = true;
+    statusMessage = "";
+    isError = false;
 
-		if (thumbnailFiles && thumbnailFiles.length > 0) {
-			formData.append('thumbnail', thumbnailFiles[0]);
-		}
+    if (!sourceCodeFiles || sourceCodeFiles.length === 0) {
+      statusMessage = "O arquivo .gleam é obrigatório.";
+      isError = true;
+      isSubmitting = false;
+      return;
+    }
 
-		try {
-			const response = await fetch('/api/games', {
-				method: 'POST',
-				body: formData
-			});
+    if (maxPlayers < minPlayers) {
+      statusMessage = "O máximo de jogadores deve ser maior ou igual ao mínimo.";
+      isError = true;
+      isSubmitting = false;
+      return;
+    }
 
-			const result = await response.json();
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("description", description);
+    formData.append("min_players", String(minPlayers));
+    formData.append("max_players", String(maxPlayers));
+    formData.append("source_code", sourceCodeFiles[0]);
 
-			if (response.ok) {
-				statusMessage = `Sucesso! Jogo #${result.id} submetido e aguardando aprovação.`;
-				title = '';
-				description = '';
-				sourceCodeFiles = null as any;
-				thumbnailFiles = null as any;
-			} else {
-				isError = true;
-				statusMessage = `Erro do servidor: ${result}`;
-			}
-		} catch (error) {
-			isError = true;
-			statusMessage = 'Falha ao conectar com o servidor.';
-			console.error(error);
-		} finally {
-			isSubmitting = false;
-		}
-	}
+    if (thumbnailFiles && thumbnailFiles.length > 0) {
+      formData.append("thumbnail", thumbnailFiles[0]);
+    }
+
+    try {
+      const response = await fetch("/api/games", {
+        method: "POST",
+        body: formData
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        isError = true;
+        statusMessage =
+          typeof result === "string"
+            ? result
+            : result?.message ?? "Erro ao submeter jogo.";
+        return;
+      }
+
+      statusMessage = `Sucesso! Jogo #${result.id} submetido e aguardando aprovação.`;
+
+      title = "";
+      description = "";
+      minPlayers = 1;
+      maxPlayers = 1;
+      sourceCodeFiles = null;
+      thumbnailFiles = null;
+    } catch (error) {
+      isError = true;
+      statusMessage = "Falha ao conectar com o servidor.";
+      console.error(error);
+    } finally {
+      isSubmitting = false;
+    }
+  }
 </script>
 
-<main class="max-w-2xl mx-auto p-6 mt-10 bg-white rounded-lg shadow-md">
-	<h1 class="text-3xl font-bold mb-6 text-gray-800">Publicar Novo Jogo</h1>
+<main class="mx-auto max-w-2xl p-6">
+  <h1 class="mb-6 text-2xl font-bold">Publicar jogo</h1>
 
-	<form on:submit|preventDefault={handleSubmit} class="space-y-6">
-		
-		<div>
-			<label for="title" class="block text-sm font-medium text-gray-700">Título do Jogo</label>
-			<input 
-				type="text" 
-				id="title" 
-				bind:value={title} 
-				required 
-				class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-				placeholder="Ex: Super Gleam Bros"
-			/>
-		</div>
+  <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+    <div>
+      <label for="title" class="block font-medium">Título</label>
+      <input
+        id="title"
+        type="text"
+        bind:value={title}
+        required
+        maxlength="100"
+        class="block w-full rounded border p-2"
+      />
+    </div>
 
-		<div>
-			<label for="description" class="block text-sm font-medium text-gray-700">Descrição</label>
-			<textarea 
-				id="description" 
-				bind:value={description} 
-				required 
-				rows="3"
-				class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-				placeholder="Como jogar, qual a história..."
-			></textarea>
-		</div>
+    <div>
+      <label for="description" class="block font-medium">Descrição</label>
+      <textarea
+        id="description"
+        bind:value={description}
+        required
+        maxlength="2000"
+        rows="4"
+        class="block w-full rounded border p-2"
+      />
+    </div>
 
-		<div>
-			<label for="sourceCode" class="block text-sm font-medium text-gray-700">Código Fonte (.gleam)</label>
-			<input 
-				type="file" 
-				id="sourceCode" 
-				accept=".gleam"
-				bind:files={sourceCodeFiles} 
-				required 
-				class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-			/>
-		</div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label for="minPlayers" class="block font-medium">Jogadores mínimos</label>
+        <input
+          id="minPlayers"
+          type="number"
+          min="1"
+          bind:value={minPlayers}
+          required
+          class="block w-full rounded border p-2"
+        />
+      </div>
 
-		<div>
-			<label for="thumbnail" class="block text-sm font-medium text-gray-700">Capa do Jogo / Thumbnail (Opcional)</label>
-			<input 
-				type="file" 
-				id="thumbnail" 
-				accept="image/png, image/jpeg"
-				bind:files={thumbnailFiles} 
-				class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
-			/>
-		</div>
+      <div>
+        <label for="maxPlayers" class="block font-medium">Jogadores máximos</label>
+        <input
+          id="maxPlayers"
+          type="number"
+          min="1"
+          bind:value={maxPlayers}
+          required
+          class="block w-full rounded border p-2"
+        />
+      </div>
+    </div>
 
-		<button 
-			type="submit" 
-			disabled={isSubmitting}
-			class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-		>
-			{isSubmitting ? 'Enviando...' : 'Submeter Jogo'}
-		</button>
-	</form>
+    <div>
+      <p class="mb-1 font-medium">Código-fonte (.gleam)</p>
 
-	{#if statusMessage}
-		<div class={`mt-4 p-4 rounded-md ${isError ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
-			{statusMessage}
-		</div>
-	{/if}
+      <input
+        id="sourceCode"
+        type="file"
+        accept=".gleam"
+        bind:files={sourceCodeFiles}
+        required
+        class="hidden"
+      />
+
+      <label
+        for="sourceCode"
+        class="inline-block cursor-pointer rounded border bg-gray-100 px-4 py-2 hover:bg-gray-200"
+      >
+        Escolher arquivo .gleam
+      </label>
+
+      {#if sourceCodeFiles?.length}
+        <p class="mt-1 text-sm">Arquivo selecionado: {sourceCodeFiles[0].name}</p>
+      {/if}
+    </div>
+
+    <div>
+      <p class="mb-1 font-medium">Thumbnail (opcional)</p>
+
+      <input
+        id="thumbnail"
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        bind:files={thumbnailFiles}
+        class="hidden"
+      />
+
+      <label
+        for="thumbnail"
+        class="inline-block cursor-pointer rounded border bg-gray-100 px-4 py-2 hover:bg-gray-200"
+      >
+        Escolher imagem
+      </label>
+
+      {#if thumbnailFiles?.length}
+        <p class="mt-1 text-sm">Imagem selecionada: {thumbnailFiles[0].name}</p>
+      {/if}
+    </div>
+
+    <button
+      type="submit"
+      disabled={isSubmitting}
+      class="rounded bg-black px-4 py-2 text-white disabled:opacity-50"
+    >
+      {isSubmitting ? "Enviando..." : "Enviar"}
+    </button>
+  </form>
+
+  {#if statusMessage}
+    <div
+      class={`mt-4 rounded border p-3 ${
+        isError ? "border-red-300 text-red-700" : "border-green-300 text-green-700"
+      }`}
+    >
+      {statusMessage}
+    </div>
+  {/if}
 </main>
