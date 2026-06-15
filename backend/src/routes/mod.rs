@@ -14,6 +14,8 @@ pub fn router(db: Db) -> Router {
         .route("/health", get(health))
         .route("/api/games", post(games::submit_game))
         .route("/api/games/pending", get(games::list_pending_games))
+        .route("/api/games/{id}", get(games::get_game))
+        .route("/api/games/{id}/thumbnail", get(games::get_thumbnail))
         .route("/api/echo", get(ws::echo_handler))
         .fallback(assets::serve)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
