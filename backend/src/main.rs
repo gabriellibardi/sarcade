@@ -2,7 +2,9 @@ mod assets;
 mod config;
 mod db;
 mod models;
+mod rooms;
 mod routes;
+mod state;
 
 use config::Config;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -17,7 +19,8 @@ async fn main() {
 
     let config = Config::from_env();
     let db = db::init(&config.database_url);
-    let app = routes::router(db);
+    let state = state::AppState::new(db);
+    let app = routes::router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
