@@ -30,7 +30,9 @@
         return;
       }
 
-      await goto(`/rooms/${result.code}?nickname=${encodeURIComponent(nickname)}`);
+      await goto(
+        `/rooms/${result.code}?nickname=${encodeURIComponent(nickname)}&host_token=${encodeURIComponent(result.host_token)}`
+      );
     } catch (err) {
       error = "Falha ao conectar com o servidor.";
       console.error(err);
