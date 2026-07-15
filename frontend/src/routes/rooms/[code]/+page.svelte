@@ -20,6 +20,16 @@
     can_start: boolean;
   };
 
+  type InputEvent =
+    | {
+        type: "keydown" | "keyup";
+        key: string;
+      }
+    | {
+        type: "paddown" | "padup";
+        input: string;
+      };
+
   type ServerMessage =
     | {
         type: "joined";
@@ -53,7 +63,7 @@
     | {
         type: "input";
         player_id: number;
-        event: unknown;
+        event: InputEvent;
       }
     | {
         type: "error";
@@ -77,13 +87,26 @@
   let events: string[] = [];
 
   let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+  const WS_CONNECTING = 0;
+  const WS_OPEN = 1;
+  const WS_CLOSED = 3;
+  let connectionState = WS_CLOSED;
+  const pressedKeys = new Map<string, string>();
+  const keysWithBrowserAction = new Set([
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    " ",
+  ]);
 
   const code = page.params.code;
 
-  $: isConnected = socket?.readyState === WebSocket.OPEN;
-  $: isConnecting = socket?.readyState === WebSocket.CONNECTING;
-  $: canShowJoinForm = !socket || socket.readyState === WebSocket.CLOSED;
+  $: isConnected = connectionState === WS_OPEN;
+  $: isConnecting = connectionState === WS_CONNECTING;
+  $: canShowJoinForm = connectionState === WS_CLOSED;
   $: canStart = Boolean(room?.can_start && amHost && room.status === "waiting");
+  $: keyboardEnabled = Boolean(isConnected && room?.status === "running");
 
   function getWsUrl() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -107,16 +130,24 @@
       return;
     }
 
+    nickname = nickname.trim();
     closeSocket();
 
-    socket = new WebSocket(getWsUrl());
+    const nextSocket = new WebSocket(getWsUrl());
+    socket = nextSocket;
+    connectionState = WS_CONNECTING;
 
-    socket.onopen = () => {
+    nextSocket.onopen = () => {
+      if (socket !== nextSocket) return;
+
+      connectionState = WS_OPEN;
       message = "Conectado à sala.";
       startKeepAlive();
     };
 
-    socket.onmessage = (event) => {
+    nextSocket.onmessage = (event) => {
+      if (socket !== nextSocket) return;
+
       addEvent(event.data);
 
       let data: ServerMessage;
@@ -132,12 +163,19 @@
       handleServerMessage(data);
     };
 
-    socket.onclose = () => {
+    nextSocket.onclose = () => {
+      if (socket !== nextSocket) return;
+
+      socket = null;
+      connectionState = WS_CLOSED;
       message = "Conexão encerrada.";
       stopKeepAlive();
+      pressedKeys.clear();
     };
 
-    socket.onerror = () => {
+    nextSocket.onerror = () => {
+      if (socket !== nextSocket) return;
+
       error = "Erro na conexão WebSocket.";
     };
   }
@@ -188,7 +226,7 @@
         break;
 
       case "input":
-        // Por enquanto, só aparece no log de eventos.
+        // O evento completo já foi incluído no log por socket.onmessage.
         break;
 
       case "error":
@@ -212,7 +250,7 @@
   }
 
   function sendMessage(payload: object) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+    if (!socket || socket.readyState !== WS_OPEN) {
       error = "Você não está conectado à sala.";
       return;
     }
@@ -227,36 +265,123 @@
   function sendKick(playerId: number) {
     sendMessage({
       type: "kick",
-      player_id: playerId
+      player_id: playerId,
     });
   }
 
   function sendPromote(playerId: number) {
     sendMessage({
       type: "promote",
-      player_id: playerId
+      player_id: playerId,
     });
   }
 
   function sendKey(key: string) {
     sendMessage({
       type: "keydown",
-      key
+      key,
     });
+  }
+
+  function sendKeyUp(key: string) {
+    sendMessage({
+      type: "keyup",
+      key,
+    });
+  }
+
+  function sendKeyPress(key: string) {
+    sendKey(key);
+    sendKeyUp(key);
   }
 
   function sendPad(input: string) {
     sendMessage({
       type: "paddown",
-      input
+      input,
     });
+  }
+
+  function sendPadUp(input: string) {
+    sendMessage({
+      type: "padup",
+      input,
+    });
+  }
+
+  function sendPadPress(input: string) {
+    sendPad(input);
+    sendPadUp(input);
+  }
+
+  function isEditableTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    return (
+      target.isContentEditable ||
+      target.closest("input, textarea, select, button, a") !== null
+    );
+  }
+
+  function keyIdentifier(event: KeyboardEvent) {
+    return event.code || event.key;
+  }
+
+  function preventBrowserAction(event: KeyboardEvent) {
+    if (keysWithBrowserAction.has(event.key)) {
+      event.preventDefault();
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    if (!keyboardEnabled || isEditableTarget(event.target)) {
+      return;
+    }
+
+    const identifier = keyIdentifier(event);
+
+    preventBrowserAction(event);
+
+    // Um keydown é enviado por pressionamento. Enquanto a tecla estiver
+    // segurada, os eventos automáticos de repetição do navegador são ignorados.
+    if (event.repeat || pressedKeys.has(identifier)) {
+      return;
+    }
+
+    pressedKeys.set(identifier, event.key);
+    sendKey(event.key);
+  }
+
+  function handleKeyUp(event: KeyboardEvent) {
+    const identifier = keyIdentifier(event);
+    const pressedKey = pressedKeys.get(identifier);
+
+    if (pressedKey === undefined) {
+      return;
+    }
+
+    preventBrowserAction(event);
+    pressedKeys.delete(identifier);
+    sendKeyUp(pressedKey);
+  }
+
+  function releasePressedKeys() {
+    if (socket?.readyState === WS_OPEN) {
+      for (const key of pressedKeys.values()) {
+        socket.send(JSON.stringify({ type: "keyup", key }));
+      }
+    }
+
+    pressedKeys.clear();
   }
 
   function startKeepAlive() {
     stopKeepAlive();
 
     keepAliveInterval = setInterval(() => {
-      if (socket?.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WS_OPEN) {
         socket.send(JSON.stringify({ type: "ping" }));
       }
     }, 25_000);
@@ -270,12 +395,13 @@
   }
 
   function closeSocket() {
+    releasePressedKeys();
     stopKeepAlive();
 
-    if (socket) {
-      socket.close();
-      socket = null;
-    }
+    const currentSocket = socket;
+    socket = null;
+    connectionState = WS_CLOSED;
+    currentSocket?.close();
 
     myPlayerId = null;
     amHost = false;
@@ -299,6 +425,10 @@
   }
 
   onMount(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", releasePressedKeys);
+
     const params = new URLSearchParams(window.location.search);
 
     nickname = params.get("nickname") ?? "";
@@ -310,6 +440,9 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener("keydown", handleKeyDown);
+    window.removeEventListener("keyup", handleKeyUp);
+    window.removeEventListener("blur", releasePressedKeys);
     closeSocket();
   });
 </script>
@@ -318,19 +451,30 @@
   <h1 class="mb-2 text-2xl font-bold">Sala {code}</h1>
 
   <div class="mb-6 flex flex-wrap gap-2">
-    <button type="button" on:click={copyRoomUrl} class="rounded border px-3 py-2">
+    <button
+      type="button"
+      on:click={copyRoomUrl}
+      class="rounded border px-3 py-2"
+    >
       Copiar link da sala
     </button>
 
     {#if isConnected}
-      <button type="button" on:click={closeSocket} class="rounded border px-3 py-2">
+      <button
+        type="button"
+        on:click={closeSocket}
+        class="rounded border px-3 py-2"
+      >
         Sair da sala
       </button>
     {/if}
   </div>
 
   {#if canShowJoinForm}
-    <form on:submit|preventDefault={connect} class="mb-6 space-y-4 rounded border p-4">
+    <form
+      on:submit|preventDefault={connect}
+      class="mb-6 space-y-4 rounded border p-4"
+    >
       <h2 class="text-xl font-semibold">Entrar na sala</h2>
 
       <div>
@@ -367,9 +511,15 @@
 
       <p><strong>Jogo:</strong> #{room.game_id}</p>
       <p><strong>Status:</strong> {room.status}</p>
-      <p><strong>Jogadores:</strong> {room.players.length} / {room.max_players}</p>
+      <p>
+        <strong>Jogadores:</strong>
+        {room.players.length} / {room.max_players}
+      </p>
       <p><strong>Mínimo para iniciar:</strong> {room.min_players}</p>
-      <p><strong>Você:</strong> {myPlayerId ? `Jogador #${myPlayerId}` : "não conectado"}</p>
+      <p>
+        <strong>Você:</strong>
+        {myPlayerId ? `Jogador #${myPlayerId}` : "não conectado"}
+      </p>
       <p><strong>Você é host?</strong> {amHost ? "sim" : "não"}</p>
 
       <h3 class="mt-4 font-semibold">Jogadores conectados</h3>
@@ -433,30 +583,71 @@
     </section>
 
     <section class="mb-6 rounded border p-4">
-      <h2 class="mb-3 text-xl font-semibold">Inputs de teste</h2>
+      <h2 class="mb-3 text-xl font-semibold">Controles do jogo</h2>
+
+      {#if keyboardEnabled}
+        <p class="mb-3 text-sm text-green-700">
+          Teclado ativo. Pressione uma tecla para enviá-la aos jogadores da
+          sala.
+        </p>
+      {:else}
+        <p class="mb-3 text-sm">
+          O teclado será ativado quando a partida começar.
+        </p>
+      {/if}
 
       <div class="flex flex-wrap gap-2">
-        <button type="button" on:click={() => sendKey("ArrowUp")} class="rounded border px-3 py-2">
+        <button
+          type="button"
+          on:click={() => sendKeyPress("ArrowUp")}
+          disabled={!keyboardEnabled}
+          class="rounded border px-3 py-2 disabled:opacity-50"
+        >
           Key ↑
         </button>
 
-        <button type="button" on:click={() => sendKey("ArrowLeft")} class="rounded border px-3 py-2">
+        <button
+          type="button"
+          on:click={() => sendKeyPress("ArrowLeft")}
+          disabled={!keyboardEnabled}
+          class="rounded border px-3 py-2 disabled:opacity-50"
+        >
           Key ←
         </button>
 
-        <button type="button" on:click={() => sendKey("ArrowDown")} class="rounded border px-3 py-2">
+        <button
+          type="button"
+          on:click={() => sendKeyPress("ArrowDown")}
+          disabled={!keyboardEnabled}
+          class="rounded border px-3 py-2 disabled:opacity-50"
+        >
           Key ↓
         </button>
 
-        <button type="button" on:click={() => sendKey("ArrowRight")} class="rounded border px-3 py-2">
+        <button
+          type="button"
+          on:click={() => sendKeyPress("ArrowRight")}
+          disabled={!keyboardEnabled}
+          class="rounded border px-3 py-2 disabled:opacity-50"
+        >
           Key →
         </button>
 
-        <button type="button" on:click={() => sendPad("ActionA")} class="rounded border px-3 py-2">
+        <button
+          type="button"
+          on:click={() => sendPadPress("ActionA")}
+          disabled={!keyboardEnabled}
+          class="rounded border px-3 py-2 disabled:opacity-50"
+        >
           Pad A
         </button>
 
-        <button type="button" on:click={() => sendPad("ActionB")} class="rounded border px-3 py-2">
+        <button
+          type="button"
+          on:click={() => sendPadPress("ActionB")}
+          disabled={!keyboardEnabled}
+          class="rounded border px-3 py-2 disabled:opacity-50"
+        >
           Pad B
         </button>
       </div>

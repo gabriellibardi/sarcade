@@ -169,6 +169,7 @@ pub enum RoomError {
     PlayerNotFound,
     CannotKickSelf,
     AlreadyRunning,
+    NotRunning,
 }
 
 impl RoomError {
@@ -184,6 +185,7 @@ impl RoomError {
             RoomError::PlayerNotFound => "Jogador não encontrado",
             RoomError::CannotKickSelf => "O host não pode expulsar a si mesmo",
             RoomError::AlreadyRunning => "A partida já foi iniciada",
+            RoomError::NotRunning => "A partida ainda não foi iniciada",
         }
     }
 }

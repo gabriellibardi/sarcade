@@ -307,6 +307,10 @@ pub fn broadcast_input(
         return Err(RoomError::PlayerNotFound);
     }
 
+    if room.status != RoomStatus::Running {
+        return Err(RoomError::NotRunning);
+    }
+
     let _ = room.tx.send(ServerMessage::Input {
         player_id,
         event,

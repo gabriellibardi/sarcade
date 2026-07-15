@@ -8,11 +8,10 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{
-    stream::{SplitSink, SplitStream},
+    stream::{SplitSink},
     SinkExt, StreamExt,
 };
 use serde::Deserialize;
-use tokio::sync::broadcast;
 
 use crate::rooms::{
     service,
