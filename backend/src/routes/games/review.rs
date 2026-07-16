@@ -1,10 +1,10 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::db::Db;
 
@@ -13,7 +13,7 @@ pub struct RejectRequest {
     pub message: String,
 }
 
-pub async fn approve_game(
+pub async fn approve_revision(
     State(db): State<Db>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
@@ -27,29 +27,33 @@ pub async fn approve_game(
     let affected = conn
         .execute(
             "
-            UPDATE games
+            UPDATE game_revisions
             SET
                 status = 'approved',
                 review_message = NULL,
                 reviewed_at = datetime('now')
             WHERE id = ?1
+              AND status = 'pending'
             ",
             [id],
         )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if affected == 0 {
-        return Err((StatusCode::NOT_FOUND, "Jogo não encontrado".into()));
+        return Err((
+            StatusCode::CONFLICT,
+            "Revisão não encontrada ou já analisada".into(),
+        ));
     }
 
     Ok(Json(json!({
-        "id": id,
+        "revision_id": id,
         "status": "approved",
-        "message": "Jogo aprovado com sucesso"
+        "message": "Revisão aprovada com sucesso"
     })))
 }
 
-pub async fn reject_game(
+pub async fn reject_revision(
     State(db): State<Db>,
     Path(id): Path<i64>,
     Json(payload): Json<RejectRequest>,
@@ -73,24 +77,28 @@ pub async fn reject_game(
     let affected = conn
         .execute(
             "
-            UPDATE games
+            UPDATE game_revisions
             SET
                 status = 'rejected',
                 review_message = ?2,
                 reviewed_at = datetime('now')
             WHERE id = ?1
+              AND status = 'pending'
             ",
             rusqlite::params![id, message],
         )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if affected == 0 {
-        return Err((StatusCode::NOT_FOUND, "Jogo não encontrado".into()));
+        return Err((
+            StatusCode::CONFLICT,
+            "Revisão não encontrada ou já analisada".into(),
+        ));
     }
 
     Ok(Json(json!({
-        "id": id,
+        "revision_id": id,
         "status": "rejected",
-        "message": "Jogo rejeitado com sucesso"
+        "message": "Revisão rejeitada com sucesso"
     })))
 }

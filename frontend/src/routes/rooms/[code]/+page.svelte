@@ -599,7 +599,7 @@
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
-          on:click={() => sendKeyPress("ArrowUp")}
+          on:click={() => sendPadPress("Up")}
           disabled={!keyboardEnabled}
           class="rounded border px-3 py-2 disabled:opacity-50"
         >
@@ -608,7 +608,7 @@
 
         <button
           type="button"
-          on:click={() => sendKeyPress("ArrowLeft")}
+          on:click={() => sendPadPress("Left")}
           disabled={!keyboardEnabled}
           class="rounded border px-3 py-2 disabled:opacity-50"
         >
@@ -617,7 +617,7 @@
 
         <button
           type="button"
-          on:click={() => sendKeyPress("ArrowDown")}
+          on:click={() => sendPadPress("Down")}
           disabled={!keyboardEnabled}
           class="rounded border px-3 py-2 disabled:opacity-50"
         >
@@ -626,7 +626,7 @@
 
         <button
           type="button"
-          on:click={() => sendKeyPress("ArrowRight")}
+          on:click={() => sendPadPress("Right")}
           disabled={!keyboardEnabled}
           class="rounded border px-3 py-2 disabled:opacity-50"
         >

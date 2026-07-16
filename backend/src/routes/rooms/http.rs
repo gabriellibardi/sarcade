@@ -1,14 +1,14 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     db::Db,
-    rooms::{service, RoomError, RoomSnapshot, RoomStore},
+    rooms::{RoomError, RoomSnapshot, RoomStore, service},
 };
 
 #[derive(Deserialize)]
@@ -38,13 +38,8 @@ pub async fn create_room(
 
     let (min_players, max_players) = get_game_player_limits(&db, payload.game_id)?;
 
-    let created = service::create_room(
-        &rooms,
-        payload.game_id,
-        min_players,
-        max_players,
-    )
-    .map_err(room_error_to_http)?;
+    let created = service::create_room(&rooms, payload.game_id, min_players, max_players)
+        .map_err(room_error_to_http)?;
 
     Ok(Json(CreateRoomResponse {
         code: created.code,
@@ -58,16 +53,12 @@ pub async fn get_room(
     State(rooms): State<RoomStore>,
     Path(code): Path<String>,
 ) -> Result<Json<RoomSnapshot>, (StatusCode, String)> {
-    let room = service::get_room_snapshot(&rooms, &code)
-        .map_err(room_error_to_http)?;
+    let room = service::get_room_snapshot(&rooms, &code).map_err(room_error_to_http)?;
 
     Ok(Json(room))
 }
 
-fn get_game_player_limits(
-    db: &Db,
-    game_id: i64,
-) -> Result<(i64, i64), (StatusCode, String)> {
+fn get_game_player_limits(db: &Db, game_id: i64) -> Result<(i64, i64), (StatusCode, String)> {
     let conn = db.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -78,9 +69,19 @@ fn get_game_player_limits(
     let result = conn
         .query_row(
             "
-            SELECT min_players, max_players
-            FROM games
-            WHERE id = ?1
+            SELECT
+                game_revisions.min_players,
+                game_revisions.max_players
+            FROM game_revisions
+            WHERE game_revisions.game_id = ?1
+              AND game_revisions.status = 'approved'
+            ORDER BY
+                COALESCE(
+                    game_revisions.reviewed_at,
+                    game_revisions.created_at
+                ) DESC,
+                game_revisions.id DESC
+            LIMIT 1
             ",
             [game_id],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
