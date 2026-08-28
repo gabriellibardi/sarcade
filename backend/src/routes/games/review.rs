@@ -3,10 +3,11 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
+use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::db::Db;
+use crate::{auth::require_admin, db::Db};
 
 #[derive(Deserialize)]
 pub struct RejectRequest {
@@ -16,7 +17,10 @@ pub struct RejectRequest {
 pub async fn approve_revision(
     State(db): State<Db>,
     Path(id): Path<i64>,
+    jar: CookieJar,
 ) -> Result<Json<Value>, (StatusCode, String)> {
+    require_admin(&db, &jar)?;
+
     let conn = db.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -56,8 +60,11 @@ pub async fn approve_revision(
 pub async fn reject_revision(
     State(db): State<Db>,
     Path(id): Path<i64>,
+    jar: CookieJar,
     Json(payload): Json<RejectRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
+    require_admin(&db, &jar)?;
+
     let message = payload.message.trim().to_string();
 
     if message.is_empty() {

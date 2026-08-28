@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { authState, loadAuth } from '$lib/auth';
+	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
 
 	type GameSummary = {
@@ -43,7 +46,20 @@
 		}
 	}
 
-	onMount(loadPendingGames);
+	async function initializePage() {
+		await loadAuth();
+
+		if (!get(authState).user?.is_admin) {
+			await goto('/');
+			return;
+		}
+
+		await loadPendingGames();
+	}
+
+	onMount(() => {
+		void initializePage();
+	});
 </script>
 
 <main class="mx-auto max-w-4xl p-6">

@@ -37,6 +37,9 @@ mod tests {
         assert_eq!(runtime_count, 2);
         assert!(table_exists(&conn, "games"));
         assert!(table_exists(&conn, "game_revisions"));
+        assert!(table_exists(&conn, "user_identities"));
+        assert!(table_exists(&conn, "oauth_states"));
+        assert!(table_exists(&conn, "sessions"));
     }
 
     fn table_exists(conn: &Connection, table: &str) -> bool {

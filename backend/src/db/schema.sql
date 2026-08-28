@@ -7,6 +7,25 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS user_identities (
+    provider   TEXT NOT NULL,
+    subject    TEXT NOT NULL,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (provider, subject),
+    UNIQUE (provider, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state         TEXT PRIMARY KEY,
+    code_verifier TEXT NOT NULL,
+    return_to     TEXT NOT NULL DEFAULT '/',
+    expires_at    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS oauth_states_expires_at
+    ON oauth_states(expires_at);
+
 CREATE TABLE IF NOT EXISTS runtime_builds (
     id               TEXT PRIMARY KEY,
     runtime          TEXT NOT NULL CHECK (runtime IN ('sgleam', 'spython')),
@@ -66,7 +85,10 @@ CREATE INDEX IF NOT EXISTS game_revisions_runtime_build_id
 
 CREATE TABLE IF NOT EXISTS sessions (
     id         TEXT PRIMARY KEY,
-    user_id    INTEGER NOT NULL REFERENCES users(id),
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS sessions_expires_at
+    ON sessions(expires_at);

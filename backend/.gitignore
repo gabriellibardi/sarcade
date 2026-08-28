@@ -1,3 +1,4 @@
 /target
 arcade.db
+arcade.db.backup
 .env

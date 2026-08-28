@@ -3,9 +3,11 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
+use axum_extra::extract::cookie::CookieJar;
 use rusqlite::{OptionalExtension, Row};
 
 use crate::{
+    auth::require_admin,
     db::Db,
     models::game::{GameDetails, GameSummary},
 };
@@ -32,7 +34,9 @@ const SUMMARY_COLUMNS: &str = "
 
 pub async fn list_pending_games(
     State(db): State<Db>,
+    jar: CookieJar,
 ) -> Result<Json<Vec<GameSummary>>, (StatusCode, String)> {
+    require_admin(&db, &jar)?;
     let conn = lock_db(&db)?;
     let sql = format!(
         "
@@ -133,7 +137,9 @@ pub async fn get_game(
 pub async fn get_revision(
     State(db): State<Db>,
     Path(id): Path<i64>,
+    jar: CookieJar,
 ) -> Result<Json<GameDetails>, (StatusCode, String)> {
+    require_admin(&db, &jar)?;
     let conn = lock_db(&db)?;
 
     let revision = conn

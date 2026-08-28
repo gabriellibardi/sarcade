@@ -6,6 +6,7 @@ use axum::{
 
 use crate::{assets, state::AppState};
 
+mod auth;
 mod games;
 mod rooms;
 mod runtimes;
@@ -14,6 +15,10 @@ mod ws;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/auth/start", get(auth::google_start))
+        .route("/api/auth/callback", get(auth::google_callback))
+        .route("/api/auth/me", get(auth::me))
+        .route("/api/auth/logout", post(auth::logout))
         .route(
             "/api/games",
             get(games::list_approved_games).post(games::submit_game),

@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { authState, loadAuth } from '$lib/auth';
+	import { get } from 'svelte/store';
+	import { onMount } from 'svelte';
 
 	type GameDetails = {
 		id: number;
@@ -127,7 +130,20 @@
 		}
 	}
 
-	onMount(loadRevision);
+	async function initializePage() {
+		await loadAuth();
+
+		if (!get(authState).user?.is_admin) {
+			await goto('/');
+			return;
+		}
+
+		await loadRevision();
+	}
+
+	onMount(() => {
+		void initializePage();
+	});
 </script>
 
 <main class="mx-auto max-w-4xl p-6">

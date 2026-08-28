@@ -5,10 +5,11 @@ use axum::{
     extract::{Multipart, State},
     http::StatusCode,
 };
+use axum_extra::extract::cookie::CookieJar;
 use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
 
-use crate::db::Db;
+use crate::{auth::current_user, db::Db};
 
 const MAX_TITLE_LEN: usize = 100;
 const MAX_DESCRIPTION_LEN: usize = 2_000;
@@ -18,8 +19,14 @@ const DEFAULT_RUNTIME_BUILD: &str = "sgleam-dev";
 
 pub async fn submit_game(
     State(db): State<Db>,
+    jar: CookieJar,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, (StatusCode, String)> {
+    let user = current_user(&db, &jar)?.ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Faça login para publicar um jogo".to_string(),
+    ))?;
+
     let mut title = None;
     let mut description = None;
     let mut source_code = None;
@@ -163,10 +170,10 @@ pub async fn submit_game(
     transaction
         .execute(
             "
-            INSERT INTO games (title, description, thumbnail)
-            VALUES (?1, ?2, ?3)
+            INSERT INTO games (title, description, thumbnail, author_id)
+            VALUES (?1, ?2, ?3, ?4)
             ",
-            rusqlite::params![title, description, thumbnail],
+            rusqlite::params![title, description, thumbnail, user.id],
         )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
