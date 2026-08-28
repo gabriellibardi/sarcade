@@ -21,25 +21,18 @@ Sarcade cria sua própria sessão em um cookie `HttpOnly`.
 O segredo do cliente nunca deve ser enviado ao Git ou colocado no frontend. O arquivo `.env`
 já é ignorado pelo repositório.
 
-Em produção, `PUBLIC_BASE_URL` é obrigatório quando `GOOGLE_REDIRECT_URI` não for informado.
-Para a implantação atual:
+Em produção, defina `PUBLIC_BASE_URL` com o endereço HTTPS público. Para a implantação atual:
 
 ```env
 PUBLIC_BASE_URL=https://sarcade.malbarbo.pro.br
 ADMIN_EMAILS=seu-email@gmail.com
 ```
 
-Como alternativa, o callback pode ser informado diretamente:
-
-```env
-GOOGLE_REDIRECT_URI=https://sarcade.malbarbo.pro.br/api/auth/callback
-```
-
 Cadastre no Google exatamente a mesma URI. O endereço precisa coincidir em protocolo, domínio,
 porta e caminho. A porta interna do servidor ou do proxy não deve aparecer no callback público.
 
 Ao iniciar, o backend registra no log o `redirect_uri` escolhido. Se houver credenciais Google,
-mas nenhuma das duas variáveis acima, o login fica desabilitado em vez de usar um endereço
+mas `PUBLIC_BASE_URL` estiver ausente, o login fica desabilitado em vez de usar um endereço
 `localhost` silenciosamente.
 
 ## Comportamento da autenticação
@@ -72,3 +65,23 @@ o papel pelo selo **Admin** no cabeçalho ou pelo campo `is_admin: true` retorna
 O frontend continua incorporado ao executável Rust. As bibliotecas do OAuth também são compiladas
 no mesmo binário; em execução, são necessárias somente as variáveis de ambiente, o banco SQLite e
 acesso HTTPS aos serviços do Google.
+
+### Compilação
+
+Na primeira vez, prepare as dependências e o target MUSL:
+
+```sh
+make setup
+```
+
+Nas compilações seguintes, execute na raiz do projeto:
+
+```sh
+make
+```
+
+Esse comando compila primeiro o frontend e depois executa o build release do backend para
+`x86_64-unknown-linux-musl`. O binário autocontido será criado em
+`backend/target/x86_64-unknown-linux-musl/release/backend`.
+
+Use `make check` para executar as verificações do frontend, os testes Rust e o Clippy.

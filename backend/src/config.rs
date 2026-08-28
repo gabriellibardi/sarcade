@@ -33,11 +33,9 @@ impl Config {
 
         let google_oauth = match (client_id, client_secret) {
             (Some(client_id), Some(client_secret)) => {
-                let redirect_uri = non_empty_env("GOOGLE_REDIRECT_URI").or_else(|| {
-                    public_base_url
-                        .as_ref()
-                        .map(|base_url| format!("{base_url}/api/auth/callback"))
-                });
+                let redirect_uri = public_base_url
+                    .as_ref()
+                    .map(|base_url| format!("{base_url}/api/auth/callback"));
 
                 match redirect_uri {
                     Some(redirect_uri) => Some(GoogleOAuthConfig {
@@ -47,9 +45,7 @@ impl Config {
                         redirect_uri,
                     }),
                     None => {
-                        tracing::warn!(
-                            "login Google desabilitado: defina PUBLIC_BASE_URL ou GOOGLE_REDIRECT_URI"
-                        );
+                        tracing::warn!("login Google desabilitado: defina PUBLIC_BASE_URL");
                         None
                     }
                 }
