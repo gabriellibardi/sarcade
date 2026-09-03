@@ -3,6 +3,8 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+use backend::game_runtime::RuntimeHandle;
+
 #[derive(Clone)]
 pub struct Room {
     pub code: String,
@@ -19,6 +21,7 @@ pub struct Room {
     pub players: Vec<Player>,
 
     pub tx: broadcast::Sender<ServerMessage>,
+    pub runtime: RuntimeHandle,
 
     pub created_at: Instant,
 }
@@ -148,6 +151,9 @@ pub enum ServerMessage {
         event: InputEvent,
     },
 
+    #[serde(rename = "frame")]
+    Frame { svg: String },
+
     #[serde(rename = "error")]
     Error {
         message: String,
@@ -170,6 +176,7 @@ pub enum RoomError {
     CannotKickSelf,
     AlreadyRunning,
     NotRunning,
+    RuntimeUnavailable,
 }
 
 impl RoomError {
@@ -186,6 +193,7 @@ impl RoomError {
             RoomError::CannotKickSelf => "O host não pode expulsar a si mesmo",
             RoomError::AlreadyRunning => "A partida já foi iniciada",
             RoomError::NotRunning => "A partida ainda não foi iniciada",
+            RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
         }
     }
 }

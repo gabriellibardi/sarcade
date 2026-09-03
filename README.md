@@ -2,6 +2,9 @@
 
 Arcade para jogos criados com Student Languages, atualmente Sgleam e Spython.
 
+O contrato temporário entre o servidor e o runtime de partidas está descrito
+em [`backend/RUNTIME_PROTOCOL.md`](backend/RUNTIME_PROTOCOL.md).
+
 ## Login com Google
 
 O Sarcade usa o fluxo OAuth 2.0 Authorization Code no backend. A aplicação solicita apenas

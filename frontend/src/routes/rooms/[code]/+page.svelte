@@ -66,6 +66,10 @@
         event: InputEvent;
       }
     | {
+        type: "frame";
+        svg: string;
+      }
+    | {
         type: "error";
         message: string;
       }
@@ -85,6 +89,7 @@
   let message = "";
   let error = "";
   let events: string[] = [];
+  let frameSvg = "";
 
   let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
   const WS_CONNECTING = 0;
@@ -107,6 +112,9 @@
   $: canShowJoinForm = connectionState === WS_CLOSED;
   $: canStart = Boolean(room?.can_start && amHost && room.status === "waiting");
   $: keyboardEnabled = Boolean(isConnected && room?.status === "running");
+  $: frameUrl = frameSvg
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(frameSvg)}`
+    : "";
 
   function getWsUrl() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -148,8 +156,6 @@
     nextSocket.onmessage = (event) => {
       if (socket !== nextSocket) return;
 
-      addEvent(event.data);
-
       let data: ServerMessage;
 
       try {
@@ -158,6 +164,12 @@
         addEvent("Mensagem inválida recebida do servidor.");
         console.error(err);
         return;
+      }
+
+      if (data.type === "frame") {
+        addEvent(`Frame SVG recebido (${data.svg.length} caracteres).`);
+      } else {
+        addEvent(event.data);
       }
 
       handleServerMessage(data);
@@ -227,6 +239,10 @@
 
       case "input":
         // O evento completo já foi incluído no log por socket.onmessage.
+        break;
+
+      case "frame":
+        frameSvg = data.svg;
         break;
 
       case "error":
@@ -405,6 +421,7 @@
 
     myPlayerId = null;
     amHost = false;
+    frameSvg = "";
   }
 
   function addEvent(value: string) {
@@ -579,6 +596,20 @@
         <p class="mt-2 text-sm">
           Ainda faltam jogadores para iniciar a partida.
         </p>
+      {/if}
+    </section>
+
+    <section class="mb-6 rounded border p-4">
+      <h2 class="mb-3 text-xl font-semibold">Tela do jogo</h2>
+
+      {#if frameUrl}
+        <img
+          src={frameUrl}
+          alt="Tela atual da partida"
+          class="block h-auto w-full rounded border bg-slate-950"
+        />
+      {:else}
+        <p>O runtime ainda não enviou uma imagem.</p>
       {/if}
     </section>
 
