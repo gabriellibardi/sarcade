@@ -369,8 +369,10 @@ fn forward_runtime_outputs(
     tokio::spawn(async move {
         while let Some(output) = outputs.recv().await {
             let message = match output {
-                RuntimeOutput::Frame(bytes) => match String::from_utf8(bytes) {
-                    Ok(svg) if svg.trim_start().starts_with("<svg") => ServerMessage::Frame { svg },
+                RuntimeOutput::Frame { player_id, svg } => match String::from_utf8(svg) {
+                    Ok(svg) if svg.trim_start().starts_with("<svg") => {
+                        ServerMessage::Frame { player_id, svg }
+                    }
                     Ok(_) => ServerMessage::Error {
                         message: "Runtime respondeu um frame que não é SVG".into(),
                     },

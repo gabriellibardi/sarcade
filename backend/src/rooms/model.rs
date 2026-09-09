@@ -152,7 +152,11 @@ pub enum ServerMessage {
     },
 
     #[serde(rename = "frame")]
-    Frame { svg: String },
+    Frame {
+        #[serde(skip)]
+        player_id: u64,
+        svg: String,
+    },
 
     #[serde(rename = "error")]
     Error {
@@ -161,6 +165,18 @@ pub enum ServerMessage {
 
     #[serde(rename = "pong")]
     Pong,
+}
+
+impl ServerMessage {
+    pub fn is_for_player(&self, player_id: u64) -> bool {
+        !matches!(
+            self,
+            Self::Frame {
+                player_id: target_id,
+                ..
+            } if *target_id != player_id
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -195,5 +211,44 @@ impl RoomError {
             RoomError::NotRunning => "A partida ainda não foi iniciada",
             RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServerMessage;
+
+    #[test]
+    fn targeted_frame_is_visible_only_to_its_player() {
+        let frame = ServerMessage::Frame {
+            player_id: 7,
+            svg: "<svg/>".into(),
+        };
+
+        assert!(frame.is_for_player(7));
+        assert!(!frame.is_for_player(8));
+    }
+
+    #[test]
+    fn websocket_frame_omits_internal_routing_metadata() {
+        let frame = ServerMessage::Frame {
+            player_id: 7,
+            svg: "<svg/>".into(),
+        };
+        let json = serde_json::to_value(frame).unwrap();
+
+        assert_eq!(json["type"], "frame");
+        assert_eq!(json["svg"], "<svg/>");
+        assert!(json.get("player_id").is_none());
+    }
+
+    #[test]
+    fn room_events_remain_visible_to_every_player() {
+        let error = ServerMessage::Error {
+            message: "falha".into(),
+        };
+
+        assert!(error.is_for_player(1));
+        assert!(error.is_for_player(2));
     }
 }

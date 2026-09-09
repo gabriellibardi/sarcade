@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { page } from "$app/state";
 
   type Player = {
@@ -454,13 +454,13 @@
     if (nickname) {
       connect();
     }
-  });
 
-  onDestroy(() => {
-    window.removeEventListener("keydown", handleKeyDown);
-    window.removeEventListener("keyup", handleKeyUp);
-    window.removeEventListener("blur", releasePressedKeys);
-    closeSocket();
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", releasePressedKeys);
+      closeSocket();
+    };
   });
 </script>
 

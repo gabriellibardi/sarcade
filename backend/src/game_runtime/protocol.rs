@@ -3,8 +3,17 @@ use std::io;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const MAX_PAYLOAD_BYTES: u32 = 8 * 1024 * 1024;
+
+const FRAME_MESSAGE_KIND: u8 = 1;
+const FRAME_HEADER_BYTES: usize = size_of::<u32>() + size_of::<u8>() + size_of::<u64>();
+
+#[derive(Debug, PartialEq)]
+pub struct RuntimeFrame {
+    pub player_id: u64,
+    pub svg: Vec<u8>,
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RuntimeMessage {
@@ -100,6 +109,65 @@ where
     writer.flush().await
 }
 
+pub async fn read_player_frame<R>(reader: &mut R) -> io::Result<Option<RuntimeFrame>>
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(payload) = read_framed(reader).await? else {
+        return Ok(None);
+    };
+
+    if payload.len() <= FRAME_HEADER_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "runtime frame payload is truncated",
+        ));
+    }
+
+    let version = u32::from_be_bytes(payload[0..4].try_into().expect("fixed-size slice"));
+    if version != PROTOCOL_VERSION {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported runtime frame protocol version: {version}"),
+        ));
+    }
+
+    let kind = payload[4];
+    if kind != FRAME_MESSAGE_KIND {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported runtime output message kind: {kind}"),
+        ));
+    }
+
+    let player_id = u64::from_be_bytes(payload[5..13].try_into().expect("fixed-size slice"));
+
+    Ok(Some(RuntimeFrame {
+        player_id,
+        svg: payload[FRAME_HEADER_BYTES..].to_vec(),
+    }))
+}
+
+pub async fn write_player_frame<W>(writer: &mut W, player_id: u64, svg: &[u8]) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    if svg.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "runtime SVG cannot be empty",
+        ));
+    }
+
+    let mut payload = Vec::with_capacity(FRAME_HEADER_BYTES + svg.len());
+    payload.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
+    payload.push(FRAME_MESSAGE_KIND);
+    payload.extend_from_slice(&player_id.to_be_bytes());
+    payload.extend_from_slice(svg);
+
+    write_framed(writer, &payload).await
+}
+
 #[cfg(test)]
 mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -144,6 +212,39 @@ mod tests {
 
         let error = read_framed(&mut reader).await.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn player_frame_preserves_target_and_raw_svg() {
+        let (mut writer, mut reader) = tokio::io::duplex(128);
+
+        let write =
+            tokio::spawn(
+                async move { write_player_frame(&mut writer, 42, b"<svg>visao</svg>").await },
+            );
+
+        let frame = read_player_frame(&mut reader).await.unwrap().unwrap();
+        assert_eq!(frame.player_id, 42);
+        assert_eq!(frame.svg, b"<svg>visao</svg>");
+        write.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_a_player_frame_from_another_protocol_version() {
+        let (mut writer, mut reader) = tokio::io::duplex(128);
+
+        let write = tokio::spawn(async move {
+            let mut payload = Vec::new();
+            payload.extend_from_slice(&(PROTOCOL_VERSION + 1).to_be_bytes());
+            payload.push(FRAME_MESSAGE_KIND);
+            payload.extend_from_slice(&1_u64.to_be_bytes());
+            payload.extend_from_slice(b"<svg/>");
+            write_framed(&mut writer, &payload).await
+        });
+
+        let error = read_player_frame(&mut reader).await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        write.await.unwrap().unwrap();
     }
 
     #[test]

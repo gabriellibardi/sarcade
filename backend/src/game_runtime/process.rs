@@ -19,7 +19,7 @@ pub struct RuntimeHandle {
 }
 
 pub enum RuntimeOutput {
-    Frame(Vec<u8>),
+    Frame { player_id: u64, svg: Vec<u8> },
     Failed(String),
 }
 
@@ -76,7 +76,7 @@ async fn run_session(
         return;
     }
 
-    if let Err(error) = run_child(game_id, first, &mut commands, &outputs).await {
+    if let Err(error) = run_child(game_id, first, commands, &outputs).await {
         let _ = outputs.send(RuntimeOutput::Failed(error.to_string())).await;
     }
 }
@@ -84,7 +84,7 @@ async fn run_session(
 async fn run_child(
     game_id: i64,
     first: RuntimeMessage,
-    commands: &mut mpsc::Receiver<RuntimeMessage>,
+    mut commands: mpsc::Receiver<RuntimeMessage>,
     outputs: &mpsc::Sender<RuntimeOutput>,
 ) -> io::Result<()> {
     let executable = std::env::current_exe()?;
@@ -101,23 +101,51 @@ async fn run_child(
         .stdin
         .take()
         .ok_or_else(|| io::Error::other("runtime stdin pipe unavailable"))?;
-    let mut stdout = child
+    let stdout = child
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("runtime stdout pipe unavailable"))?;
 
-    exchange(&mut stdin, &mut stdout, &first, outputs).await?;
+    write_command(&mut stdin, &first).await?;
+    let mut reader_task = tokio::spawn(read_outputs(stdout, outputs.clone()));
 
-    while let Some(message) = commands.recv().await {
-        let stopping = matches!(&message.command, RuntimeCommand::Stop);
-        exchange(&mut stdin, &mut stdout, &message, outputs).await?;
-        if stopping {
-            break;
+    loop {
+        tokio::select! {
+            message = commands.recv() => {
+                let Some(message) = message else {
+                    break;
+                };
+                let stopping = matches!(&message.command, RuntimeCommand::Stop);
+                if let Err(error) = write_command(&mut stdin, &message).await {
+                    reader_task.abort();
+                    return Err(error);
+                }
+                if stopping {
+                    break;
+                }
+            }
+            result = &mut reader_task => {
+                let result = result.map_err(|error| {
+                    io::Error::other(format!("runtime output task failed: {error}"))
+                })?;
+                result?;
+
+                drop(stdin);
+                let status = child.wait().await?;
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("runtime stdout closed before stop (status {status})"),
+                ));
+            }
         }
     }
 
     drop(stdin);
     let status = child.wait().await?;
+    reader_task
+        .await
+        .map_err(|error| io::Error::other(format!("runtime output task failed: {error}")))??;
+
     if !status.success() {
         return Err(io::Error::other(format!(
             "runtime exited with status {status}"
@@ -127,27 +155,32 @@ async fn run_child(
     Ok(())
 }
 
-async fn exchange<W, R>(
-    writer: &mut W,
-    reader: &mut R,
-    message: &RuntimeMessage,
-    outputs: &mpsc::Sender<RuntimeOutput>,
-) -> io::Result<()>
+async fn write_command<W>(writer: &mut W, message: &RuntimeMessage) -> io::Result<()>
 where
     W: tokio::io::AsyncWrite + Unpin,
-    R: tokio::io::AsyncRead + Unpin,
 {
     let payload = serde_json::to_vec(message)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    protocol::write_framed(writer, &payload).await?;
+    protocol::write_framed(writer, &payload).await
+}
 
-    let frame = protocol::read_framed(reader)
-        .await?
-        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "runtime stdout closed"))?;
-    outputs
-        .send(RuntimeOutput::Frame(frame))
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "runtime output receiver closed"))
+async fn read_outputs<R>(mut reader: R, outputs: mpsc::Sender<RuntimeOutput>) -> io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    while let Some(frame) = protocol::read_player_frame(&mut reader).await? {
+        outputs
+            .send(RuntimeOutput::Frame {
+                player_id: frame.player_id,
+                svg: frame.svg,
+            })
+            .await
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::BrokenPipe, "runtime output receiver closed")
+            })?;
+    }
+
+    Ok(())
 }
 
 pub async fn run_stub_from_args(game_label: Option<String>) -> io::Result<()> {
