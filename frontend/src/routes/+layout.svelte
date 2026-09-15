@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { authState, loadAuth, logout } from '$lib/auth';
 	import favicon from '$lib/assets/favicon.svg';
@@ -53,7 +54,6 @@
 					class="flex flex-wrap items-center gap-1 text-sm font-medium"
 				>
 					<a href="/catalog" class="nav-link">Catálogo</a>
-					<a href="/rooms/new" class="nav-link">Criar sala</a>
 					<a href="/submit" class="nav-link">Publicar jogo</a>
 					{#if $authState.user?.is_admin}
 						<a href="/pending" class="nav-link">Revisões</a>
@@ -68,31 +68,38 @@
 						></span>
 					{:else if $authState.user}
 						<div class="flex items-center gap-2">
-							{#if $authState.user.avatar}
-								<img
-									src={$authState.user.avatar}
-									alt=""
-									referrerpolicy="no-referrer"
-									class="h-9 w-9 rounded-full border border-slate-200 object-cover"
-								/>
-							{:else}
-								<span
-									class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700"
-								>
-									{$authState.user.name.slice(0, 1).toUpperCase()}
-								</span>
-							{/if}
-							<div class="hidden max-w-32 sm:block">
-								<div class="flex items-center gap-1.5">
-									<p class="truncate text-sm font-bold text-slate-800">{$authState.user.name}</p>
-									{#if $authState.user.is_admin}
-										<span class="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
-											Admin
-										</span>
-									{/if}
+							<a
+								href={resolve('/users/[id]', { id: String($authState.user.id) })}
+								class="flex items-center gap-2 rounded-lg hover:opacity-80"
+							>
+								{#if $authState.user.avatar}
+									<img
+										src={$authState.user.avatar}
+										alt=""
+										referrerpolicy="no-referrer"
+										class="h-9 w-9 rounded-full border border-slate-200 object-cover"
+									/>
+								{:else}
+									<span
+										class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700"
+									>
+										{$authState.user.name.slice(0, 1).toUpperCase()}
+									</span>
+								{/if}
+								<div class="hidden max-w-32 sm:block">
+									<div class="flex items-center gap-1.5">
+										<p class="truncate text-sm font-bold text-slate-800">{$authState.user.name}</p>
+										{#if $authState.user.is_admin}
+											<span
+												class="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+											>
+												Admin
+											</span>
+										{/if}
+									</div>
+									<p class="truncate text-xs text-slate-500">{$authState.user.email}</p>
 								</div>
-								<p class="truncate text-xs text-slate-500">{$authState.user.email}</p>
-							</div>
+							</a>
 							<button
 								type="button"
 								onclick={handleLogout}

@@ -46,6 +46,27 @@ pub struct GameDetails {
 }
 
 #[derive(Serialize)]
+pub struct PublishedGameDetails {
+    pub id: i64,
+    pub revision_id: i64,
+    pub title: String,
+    pub description: String,
+    pub min_players: i64,
+    pub max_players: i64,
+    pub author_id: Option<i64>,
+    pub author_name: Option<String>,
+    pub is_featured: bool,
+    pub created_at: String,
+    pub published_at: Option<String>,
+    pub has_thumbnail: bool,
+    pub runtime_build_id: String,
+    pub runtime: String,
+    pub runtime_name: String,
+    pub runtime_version: String,
+    pub source_extension: String,
+}
+
+#[derive(Serialize)]
 pub struct RuntimeBuildSummary {
     pub id: String,
     pub runtime: String,

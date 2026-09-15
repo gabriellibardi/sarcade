@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import { page } from "$app/state";
 
@@ -180,9 +182,9 @@
 
       socket = null;
       connectionState = WS_CLOSED;
+      resetParticipationState();
       message = "Conexão encerrada.";
       stopKeepAlive();
-      pressedKeys.clear();
     };
 
     nextSocket.onerror = () => {
@@ -224,8 +226,8 @@
         room = data.room;
 
         if (data.player_id === myPlayerId) {
-          error = "Você foi removido da sala pelo host.";
           closeSocket();
+          error = "Você foi removido da sala pelo host.";
           return;
         }
 
@@ -419,9 +421,34 @@
     connectionState = WS_CLOSED;
     currentSocket?.close();
 
+    resetParticipationState();
+  }
+
+  function resetParticipationState() {
     myPlayerId = null;
     amHost = false;
+    room = null;
     frameSvg = "";
+    events = [];
+    pressedKeys.clear();
+  }
+
+  async function leaveRoom() {
+    const gameId = room?.game_id;
+
+    closeSocket();
+    nickname = "";
+    hostToken = "";
+    message = "";
+    error = "";
+
+    if (gameId) {
+      await goto(resolve("/games/[id]", { id: String(gameId) }), {
+        replaceState: true,
+      });
+    } else {
+      await goto(resolve("/catalog"), { replaceState: true });
+    }
   }
 
   function addEvent(value: string) {
@@ -479,7 +506,7 @@
     {#if isConnected}
       <button
         type="button"
-        on:click={closeSocket}
+        on:click={leaveRoom}
         class="rounded border px-3 py-2"
       >
         Sair da sala
@@ -500,6 +527,8 @@
           id="nickname"
           type="text"
           bind:value={nickname}
+          required
+          maxlength="30"
           class="block w-full rounded border p-2"
         />
       </div>
@@ -526,7 +555,15 @@
     <section class="mb-6 rounded border p-4">
       <h2 class="mb-3 text-xl font-semibold">Estado da sala</h2>
 
-      <p><strong>Jogo:</strong> #{room.game_id}</p>
+      <p>
+        <strong>Jogo:</strong>
+        <a
+          href={resolve("/games/[id]", { id: String(room.game_id) })}
+          class="font-semibold text-indigo-700 hover:underline"
+        >
+          #{room.game_id}
+        </a>
+      </p>
       <p><strong>Status:</strong> {room.status}</p>
       <p>
         <strong>Jogadores:</strong>

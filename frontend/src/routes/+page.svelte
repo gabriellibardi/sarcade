@@ -119,7 +119,7 @@
 				</p>
 			</a>
 			<a
-				href="/rooms/new"
+				href="/catalog"
 				class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md"
 			>
 				<span
@@ -128,7 +128,7 @@
 				>
 				<h2 class="font-bold text-slate-950">Crie uma sala</h2>
 				<p class="mt-1 text-sm leading-6 text-slate-600">
-					Selecione o jogo, escolha seu apelido e convide os amigos.
+					Abra um jogo, escolha seu apelido e convide os amigos.
 				</p>
 			</a>
 			<a

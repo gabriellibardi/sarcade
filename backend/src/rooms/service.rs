@@ -19,6 +19,7 @@ use crate::rooms::{
 };
 
 const EMPTY_ROOM_TTL: Duration = Duration::from_secs(10 * 60);
+const MAX_NICKNAME_LENGTH: usize = 30;
 
 pub struct CreatedRoom {
     pub code: String,
@@ -88,11 +89,7 @@ pub fn join_room(
     nickname: String,
     host_token: Option<String>,
 ) -> Result<JoinRoom, RoomError> {
-    let nickname = nickname.trim().to_string();
-
-    if nickname.is_empty() {
-        return Err(RoomError::NicknameRequired);
-    }
+    let nickname = validate_nickname(&nickname)?;
 
     let mut rooms = lock_rooms(store)?;
 
@@ -152,6 +149,20 @@ pub fn join_room(
         room: snapshot,
         rx,
     })
+}
+
+pub fn validate_nickname(nickname: &str) -> Result<String, RoomError> {
+    let nickname = nickname.trim();
+
+    if nickname.is_empty() {
+        return Err(RoomError::NicknameRequired);
+    }
+
+    if nickname.chars().count() > MAX_NICKNAME_LENGTH {
+        return Err(RoomError::NicknameTooLong);
+    }
+
+    Ok(nickname.to_string())
 }
 
 pub fn leave_room(
@@ -446,4 +457,24 @@ fn random_token(len: usize) -> String {
         .take(len)
         .map(char::from)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_nickname;
+    use crate::rooms::RoomError;
+
+    #[test]
+    fn nickname_is_trimmed_and_limited_on_the_server() {
+        assert_eq!(validate_nickname("  Jogador  ").unwrap(), "Jogador");
+        assert!(matches!(
+            validate_nickname("   "),
+            Err(RoomError::NicknameRequired)
+        ));
+        assert!(validate_nickname(&"á".repeat(30)).is_ok());
+        assert!(matches!(
+            validate_nickname(&"á".repeat(31)),
+            Err(RoomError::NicknameTooLong)
+        ));
+    }
 }

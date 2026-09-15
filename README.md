@@ -49,6 +49,15 @@ mas `PUBLIC_BASE_URL` estiver ausente, o login fica desabilitado em vez de usar 
 - Sem as duas credenciais Google, o servidor continua funcionando e informa que o login está
   desabilitado.
 
+## Fluxo público de jogos
+
+- O catálogo e a página inicial levam aos detalhes de cada jogo publicado.
+- A criação de sala começa na página do jogo, depois que o participante informa seu nickname.
+- O perfil público de um autor mostra seu nome, avatar, data de entrada e somente seus jogos
+  aprovados.
+- `GET /api/games/{id}` expõe apenas os metadados públicos da versão aprovada. Código-fonte e
+  informações da revisão ficam restritos às rotas administrativas de revisão.
+
 ## Administradores
 
 `ADMIN_EMAILS` é a fonte de verdade para a função de administrador. Exemplo com mais de uma

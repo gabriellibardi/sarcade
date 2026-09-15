@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { GameSummary } from '$lib/types/game';
 
 	let { game }: { game: GameSummary } = $props();
@@ -48,7 +49,12 @@
 
 	<div class="flex flex-1 flex-col p-5">
 		<div class="mb-2 flex items-start justify-between gap-3">
-			<h3 class="text-xl font-bold tracking-tight text-slate-950">{game.title}</h3>
+			<h3 class="text-xl font-bold tracking-tight text-slate-950">
+				<a
+					href={resolve('/games/[id]', { id: String(game.id) })}
+					class="hover:text-indigo-700 hover:underline">{game.title}</a
+				>
+			</h3>
 			<span class="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
 				{playerLabel}
 			</span>
@@ -58,13 +64,23 @@
 
 		<div class="mt-5 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
 			<div class="min-w-0 text-xs text-slate-500">
-				<p class="truncate">por {game.author_name ?? 'autor não informado'}</p>
+				{#if game.author_id && game.author_name}
+					<p class="truncate">
+						por <a
+							href={resolve('/users/[id]', { id: String(game.author_id) })}
+							class="font-semibold hover:text-indigo-700 hover:underline">{game.author_name}</a
+						>
+					</p>
+				{:else}
+					<p class="truncate">por autor não informado</p>
+				{/if}
 				<p class="truncate">{game.runtime_version}</p>
 			</div>
 
-			<a href={`/rooms/new?game_id=${game.id}`} class="primary-button shrink-0 px-4 py-2 text-sm">
-				Jogar
-			</a>
+			<a
+				href={resolve('/games/[id]', { id: String(game.id) })}
+				class="primary-button shrink-0 px-4 py-2 text-sm">Ver jogo</a
+			>
 		</div>
 	</div>
 </article>

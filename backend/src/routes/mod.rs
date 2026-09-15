@@ -10,6 +10,7 @@ mod auth;
 mod games;
 mod rooms;
 mod runtimes;
+mod users;
 mod ws;
 
 pub fn router(state: AppState) -> Router {
@@ -30,6 +31,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/revisions/{id}/approve", post(games::approve_revision))
         .route("/api/revisions/{id}/reject", post(games::reject_revision))
         .route("/api/runtimes", get(runtimes::list_runtime_builds))
+        .route("/api/users/{id}", get(users::get_user_profile))
         .route("/api/rooms", post(rooms::create_room))
         .route("/api/rooms/{code}", get(rooms::get_room))
         .route("/api/rooms/{code}/ws", get(rooms::room_ws))

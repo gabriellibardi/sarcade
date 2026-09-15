@@ -30,11 +30,7 @@ pub async fn create_room(
     State(rooms): State<RoomStore>,
     Json(payload): Json<CreateRoomRequest>,
 ) -> Result<Json<CreateRoomResponse>, (StatusCode, String)> {
-    let nickname = payload.nickname.trim().to_string();
-
-    if nickname.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Nickname é obrigatório".into()));
-    }
+    let nickname = service::validate_nickname(&payload.nickname).map_err(room_error_to_http)?;
 
     let (min_players, max_players) = get_game_player_limits(&db, payload.game_id)?;
 
