@@ -37,11 +37,3 @@ export type PublishedGameDetails = {
 	runtime_version: string;
 	source_extension: string;
 };
-
-export type PublicUserProfile = {
-	id: number;
-	name: string;
-	avatar: string | null;
-	created_at: string;
-	published_games: GameSummary[];
-};

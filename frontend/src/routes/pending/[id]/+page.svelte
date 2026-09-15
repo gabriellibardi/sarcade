@@ -1,99 +1,64 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { authState, loadAuth } from '$lib/auth';
-	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { apiRequest, errorMessage } from '$lib/api';
+	import { authState, loadAuth } from '$lib/auth';
+	import Alert from '$lib/components/ui/Alert.svelte';
+	import type { ReviewDetails } from '$lib/types/review';
+	import { formatDate, playerCountLabel } from '$lib/utils/format';
 
-	type GameDetails = {
-		id: number;
-		revision_id: number;
-		title: string;
-		description: string;
-		source_code: string;
-		status: string;
-		min_players: number;
-		max_players: number;
-		is_featured: boolean;
-		review_message: string | null;
-		created_at: string;
-		reviewed_at: string | null;
-		has_thumbnail: boolean;
-		author_name: string | null;
-		runtime_build_id: string;
-		runtime: string;
-		runtime_name: string;
-		runtime_version: string;
-		source_extension: string;
-	};
-
-	let game: GameDetails | null = null;
+	let game: ReviewDetails | null = null;
 	let isLoading = true;
 	let error = '';
-
 	let reviewMessage = '';
 	let actionMessage = '';
 	let actionError = '';
 	let isReviewing = false;
 
+	const revisionId = Number(page.params.id);
+
 	async function loadRevision() {
 		isLoading = true;
 		error = '';
 
-		const id = page.params.id;
-
 		try {
-			const response = await fetch(`/api/revisions/${id}`);
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok) {
-				error = result?.message ?? 'Erro ao carregar revisão.';
-				return;
-			}
-
-			game = result;
-		} catch (err) {
-			error = 'Falha ao conectar com o servidor.';
-			console.error(err);
+			game = await apiRequest<ReviewDetails>(`/api/revisions/${revisionId}`);
+		} catch (loadError) {
+			error = errorMessage(loadError, 'Não foi possível carregar esta revisão.');
+			console.error(loadError);
 		} finally {
 			isLoading = false;
 		}
 	}
 
 	async function approveRevision() {
-		if (!game) return;
+		if (!game || isReviewing) return;
 
 		isReviewing = true;
 		actionMessage = '';
 		actionError = '';
 
 		try {
-			const response = await fetch(`/api/revisions/${game.revision_id}/approve`, {
-				method: 'POST'
-			});
-
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok) {
-				actionError = result?.message ?? 'Erro ao aprovar revisão.';
-				return;
-			}
-
-			actionMessage = 'Revisão aprovada com sucesso.';
+			await apiRequest(`/api/revisions/${game.revision_id}/approve`, { method: 'POST' });
+			actionMessage = 'Revisão aprovada e jogo publicado no catálogo.';
 			await loadRevision();
-		} catch (err) {
-			actionError = 'Falha ao conectar com o servidor.';
-			console.error(err);
+		} catch (reviewError) {
+			actionError = errorMessage(reviewError, 'Não foi possível aprovar a revisão.');
+			console.error(reviewError);
 		} finally {
 			isReviewing = false;
 		}
 	}
 
 	async function rejectRevision() {
-		if (!game) return;
+		if (!game || isReviewing) return;
 
-		if (!reviewMessage.trim()) {
-			actionError = 'Informe uma mensagem de rejeição.';
+		reviewMessage = reviewMessage.trim();
+		if (!reviewMessage) {
+			actionError = 'Informe uma justificativa para a rejeição.';
 			return;
 		}
 
@@ -102,29 +67,17 @@
 		actionError = '';
 
 		try {
-			const response = await fetch(`/api/revisions/${game.revision_id}/reject`, {
+			await apiRequest(`/api/revisions/${game.revision_id}/reject`, {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					message: reviewMessage
-				})
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ message: reviewMessage })
 			});
-
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok) {
-				actionError = result?.message ?? 'Erro ao rejeitar revisão.';
-				return;
-			}
-
-			actionMessage = 'Revisão rejeitada com sucesso.';
+			actionMessage = 'Revisão rejeitada e justificativa registrada.';
 			reviewMessage = '';
 			await loadRevision();
-		} catch (err) {
-			actionError = 'Falha ao conectar com o servidor.';
-			console.error(err);
+		} catch (reviewError) {
+			actionError = errorMessage(reviewError, 'Não foi possível rejeitar a revisão.');
+			console.error(reviewError);
 		} finally {
 			isReviewing = false;
 		}
@@ -134,7 +87,7 @@
 		await loadAuth();
 
 		if (!get(authState).user?.is_admin) {
-			await goto('/');
+			await goto(resolve('/'));
 			return;
 		}
 
@@ -146,124 +99,148 @@
 	});
 </script>
 
-<main class="mx-auto max-w-4xl p-6">
-	<a href="/pending" class="mb-4 inline-block underline"> ← Voltar </a>
+<svelte:head>
+	<title>{game ? `Revisar ${game.title} — Sarcade` : 'Revisão — Sarcade'}</title>
+</svelte:head>
+
+<main class="page-shell max-w-5xl">
+	<a href={resolve('/pending')} class="text-sm font-bold text-indigo-700 hover:underline"
+		>← Voltar para a fila</a
+	>
 
 	{#if isLoading}
-		<p>Carregando...</p>
+		<div class="surface-card mt-7 h-96 animate-pulse" aria-label="Carregando revisão"></div>
 	{:else if error}
-		<p class="text-red-700">{error}</p>
+		<div class="mt-7"><Alert tone="error" message={error} onRetry={loadRevision} /></div>
 	{:else if game}
-		<div class="mb-4 flex flex-wrap items-start justify-between gap-3">
-			<div>
-				<h1 class="text-2xl font-bold">{game.title}</h1>
-				<p class="text-sm text-gray-600">
-					Jogo #{game.id} · Revisão #{game.revision_id}
+		<header class="mt-7 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+			<div class="max-w-3xl">
+				<p class="eyebrow">Revisão #{game.revision_id}</p>
+				<h1 class="mt-2 text-4xl font-black tracking-tight text-slate-950">{game.title}</h1>
+				<p class="mt-3 text-slate-600">
+					Jogo #{game.id} · enviado por {game.author_name ?? 'autor não informado'}
 				</p>
 			</div>
-
-			<span class="rounded bg-gray-100 px-3 py-2 text-sm">
-				{game.runtime_name} — {game.runtime_version}
+			<span
+				class={`rounded-full px-3 py-1.5 text-sm font-bold ${game.status === 'pending' ? 'bg-amber-100 text-amber-800' : game.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}
+			>
+				{game.status === 'pending'
+					? 'Pendente'
+					: game.status === 'approved'
+						? 'Aprovado'
+						: 'Rejeitado'}
 			</span>
+		</header>
+
+		<div class="mt-8 grid items-start gap-6 lg:grid-cols-[1fr_18rem]">
+			<div class="space-y-6">
+				<section class="surface-card overflow-hidden">
+					{#if game.has_thumbnail}
+						<img
+							src={`/api/games/${game.id}/thumbnail`}
+							alt={`Capa de ${game.title}`}
+							class="max-h-80 w-full object-cover"
+						/>
+					{/if}
+					<div class="p-6">
+						<h2 class="text-xl font-black text-slate-950">Descrição</h2>
+						<p class="mt-3 leading-7 whitespace-pre-line text-slate-600">{game.description}</p>
+					</div>
+				</section>
+
+				<section class="surface-card overflow-hidden">
+					<div
+						class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4"
+					>
+						<h2 class="text-xl font-black text-slate-950">Código-fonte</h2>
+						<code class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600"
+							>{game.source_extension}</code
+						>
+					</div>
+					<pre
+						class="max-h-[38rem] overflow-auto bg-slate-950 p-6 text-sm leading-6 text-slate-100"><code
+							>{game.source_code}</code
+						></pre>
+				</section>
+			</div>
+
+			<aside class="space-y-5 lg:sticky lg:top-24">
+				<section class="surface-card p-5">
+					<h2 class="font-black text-slate-950">Metadados</h2>
+					<dl class="mt-4 space-y-3 text-sm">
+						<div>
+							<dt class="text-slate-500">Runtime</dt>
+							<dd class="font-bold text-slate-800">{game.runtime_name} · {game.runtime_version}</dd>
+						</div>
+						<div>
+							<dt class="text-slate-500">Build</dt>
+							<dd class="font-mono text-xs break-all text-slate-700">{game.runtime_build_id}</dd>
+						</div>
+						<div>
+							<dt class="text-slate-500">Jogadores</dt>
+							<dd class="font-bold text-slate-800">
+								{playerCountLabel(game.min_players, game.max_players)}
+							</dd>
+						</div>
+						<div>
+							<dt class="text-slate-500">Enviado em</dt>
+							<dd class="font-bold text-slate-800">
+								{formatDate(game.created_at) ?? 'Data não informada'}
+							</dd>
+						</div>
+						{#if game.reviewed_at}
+							<div>
+								<dt class="text-slate-500">Revisado em</dt>
+								<dd class="font-bold text-slate-800">
+									{formatDate(game.reviewed_at) ?? 'Data não informada'}
+								</dd>
+							</div>
+						{/if}
+					</dl>
+				</section>
+
+				<section class="surface-card p-5">
+					<h2 class="font-black text-slate-950">Decisão</h2>
+					{#if game.status !== 'pending'}
+						<p class="mt-3 text-sm leading-6 text-slate-600">Esta revisão já foi analisada.</p>
+						{#if game.review_message}
+							<div class="mt-4">
+								<Alert tone="info" title="Justificativa" message={game.review_message} />
+							</div>
+						{/if}
+					{:else}
+						<label for="reviewMessage" class="form-label mt-4">Justificativa da rejeição</label>
+						<textarea
+							id="reviewMessage"
+							bind:value={reviewMessage}
+							rows="4"
+							class="form-control"
+							placeholder="Obrigatória para rejeitar"
+						></textarea>
+						<div class="mt-4 grid gap-2">
+							<button
+								type="button"
+								onclick={() => void approveRevision()}
+								disabled={isReviewing}
+								class="primary-button bg-emerald-600 hover:bg-emerald-700"
+							>
+								{isReviewing ? 'Processando...' : 'Aprovar e publicar'}
+							</button>
+							<button
+								type="button"
+								onclick={() => void rejectRevision()}
+								disabled={isReviewing}
+								class="secondary-button border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50"
+							>
+								Rejeitar
+							</button>
+						</div>
+					{/if}
+				</section>
+
+				{#if actionMessage}<Alert tone="success" message={actionMessage} />{/if}
+				{#if actionError}<Alert tone="error" message={actionError} />{/if}
+			</aside>
 		</div>
-
-		{#if game.has_thumbnail}
-			<img
-				src={`/api/games/${game.id}/thumbnail`}
-				alt={game.title}
-				class="mb-4 max-h-64 rounded border object-contain"
-			/>
-		{/if}
-
-		<section class="mb-6 space-y-1">
-			<p><strong>Status:</strong> {game.status}</p>
-			<p><strong>Autor:</strong> {game.author_name ?? 'Sem autor'}</p>
-			<p><strong>Runtime:</strong> {game.runtime_build_id}</p>
-			<p><strong>Jogadores:</strong> {game.min_players} a {game.max_players}</p>
-			<p><strong>Enviado em:</strong> {game.created_at}</p>
-
-			{#if game.reviewed_at}
-				<p><strong>Revisado em:</strong> {game.reviewed_at}</p>
-			{/if}
-		</section>
-
-		<section class="mb-6">
-			<h2 class="mb-2 text-xl font-semibold">Descrição</h2>
-			<p>{game.description}</p>
-		</section>
-
-		<section class="mb-6">
-			<h2 class="mb-2 text-xl font-semibold">
-				Código-fonte ({game.source_extension})
-			</h2>
-
-			<pre class="overflow-auto rounded border bg-gray-100 p-4 text-sm"><code
-					>{game.source_code}</code
-				></pre>
-		</section>
-
-		<section class="mb-6">
-			<h2 class="mb-2 text-xl font-semibold">Teste</h2>
-
-			<button type="button" disabled class="rounded border px-4 py-2 opacity-50">
-				Execução será integrada ao runtime
-			</button>
-		</section>
-
-		<section class="mb-6">
-			<h2 class="mb-2 text-xl font-semibold">Revisão</h2>
-
-			{#if game.status !== 'pending'}
-				<p class="mb-3">Esta revisão já foi analisada.</p>
-
-				{#if game.review_message}
-					<p><strong>Mensagem:</strong> {game.review_message}</p>
-				{/if}
-			{:else}
-				<div class="mb-4">
-					<label for="reviewMessage" class="block font-medium"> Mensagem de rejeição </label>
-
-					<textarea
-						id="reviewMessage"
-						bind:value={reviewMessage}
-						rows="3"
-						class="mt-1 block w-full rounded border p-2"
-						placeholder="Obrigatória apenas para rejeitar"
-					></textarea>
-				</div>
-
-				<div class="flex gap-3">
-					<button
-						type="button"
-						on:click={approveRevision}
-						disabled={isReviewing}
-						class="rounded bg-green-700 px-4 py-2 text-white disabled:opacity-50"
-					>
-						Aprovar
-					</button>
-
-					<button
-						type="button"
-						on:click={rejectRevision}
-						disabled={isReviewing}
-						class="rounded bg-red-700 px-4 py-2 text-white disabled:opacity-50"
-					>
-						Rejeitar
-					</button>
-				</div>
-			{/if}
-
-			{#if actionMessage}
-				<p class="mt-3 rounded border border-green-300 p-3 text-green-700">
-					{actionMessage}
-				</p>
-			{/if}
-
-			{#if actionError}
-				<p class="mt-3 rounded border border-red-300 p-3 text-red-700">
-					{actionError}
-				</p>
-			{/if}
-		</section>
 	{/if}
 </main>

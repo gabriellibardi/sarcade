@@ -1,6 +1,12 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { apiRequest, errorMessage } from '$lib/api';
 	import GameCard from '$lib/components/GameCard.svelte';
+	import Alert from '$lib/components/ui/Alert.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import LoadingCards from '$lib/components/ui/LoadingCards.svelte';
+	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import type { GameSummary } from '$lib/types/game';
 
 	let games: GameSummary[] = [];
@@ -29,21 +35,18 @@
 		error = '';
 
 		try {
-			const response = await fetch('/api/games');
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok || !Array.isArray(result)) {
-				error = 'Não foi possível carregar o catálogo.';
-				return;
-			}
-
-			games = result;
+			games = await apiRequest<GameSummary[]>('/api/games');
 		} catch (loadError) {
-			error = 'Falha ao conectar com o servidor.';
+			error = errorMessage(loadError, 'Não foi possível carregar o catálogo.');
 			console.error(loadError);
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	function clearFilters() {
+		search = '';
+		runtime = 'all';
 	}
 
 	onMount(loadGames);
@@ -54,17 +57,16 @@
 	<meta name="description" content="Explore os jogos aprovados disponíveis no Sarcade." />
 </svelte:head>
 
-<main class="mx-auto max-w-6xl px-5 py-12 sm:px-6 lg:py-16">
-	<header class="max-w-3xl">
-		<p class="text-sm font-bold tracking-widest text-indigo-600 uppercase">Jogos aprovados</p>
-		<h1 class="mt-2 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">Catálogo</h1>
-		<p class="mt-4 text-lg leading-8 text-slate-600">
-			Explore projetos revisados pela equipe e escolha o próximo jogo da sua sala.
-		</p>
-	</header>
+<main class="page-shell">
+	<PageHeader
+		eyebrow="Jogos aprovados"
+		title="Catálogo"
+		description="Explore projetos revisados pela equipe e escolha o próximo jogo da sua sala."
+	/>
 
-	<div
-		class="mt-9 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row"
+	<section
+		class="surface-card mt-9 flex flex-col gap-3 p-4 sm:flex-row"
+		aria-label="Filtros do catálogo"
 	>
 		<label class="flex-1">
 			<span class="sr-only">Pesquisar jogos</span>
@@ -72,23 +74,20 @@
 				type="search"
 				bind:value={search}
 				placeholder="Pesquisar por título, descrição ou autor"
-				class="w-full rounded-xl border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+				class="form-control"
 			/>
 		</label>
 
 		<label class="sm:w-56">
 			<span class="sr-only">Filtrar por linguagem</span>
-			<select
-				bind:value={runtime}
-				class="w-full rounded-xl border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-			>
+			<select bind:value={runtime} class="form-control">
 				<option value="all">Todas as linguagens</option>
-				{#each runtimes as [runtimeId, runtimeName]}
+				{#each runtimes as [runtimeId, runtimeName] (runtimeId)}
 					<option value={runtimeId}>{runtimeName}</option>
 				{/each}
 			</select>
 		</label>
-	</div>
+	</section>
 
 	<div class="mt-5 flex items-center justify-between text-sm text-slate-500">
 		<p>
@@ -98,10 +97,7 @@
 		{#if search || runtime !== 'all'}
 			<button
 				type="button"
-				on:click={() => {
-					search = '';
-					runtime = 'all';
-				}}
+				onclick={clearFilters}
 				class="font-semibold text-indigo-700 hover:underline"
 			>
 				Limpar filtros
@@ -109,53 +105,34 @@
 		{/if}
 	</div>
 
-	{#if isLoading}
-		<div class="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3" aria-label="Carregando catálogo">
-			{#each Array(6) as _}
-				<div class="h-96 animate-pulse rounded-2xl border border-slate-200 bg-white"></div>
-			{/each}
-		</div>
-	{:else if error}
-		<div class="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-red-800">
-			<p>{error}</p>
-			<button type="button" on:click={loadGames} class="mt-3 font-bold underline"
-				>Tentar novamente</button
+	<div class="mt-6">
+		{#if isLoading}
+			<LoadingCards count={6} />
+		{:else if error}
+			<Alert tone="error" message={error} onRetry={loadGames} />
+		{:else if games.length === 0}
+			<EmptyState
+				title="Nenhum jogo aprovado ainda"
+				description="Os jogos aparecerão aqui depois que uma revisão for aprovada."
 			>
-		</div>
-	{:else if games.length === 0}
-		<div
-			class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white/70 p-12 text-center"
-		>
-			<p class="text-xl font-bold text-slate-800">Nenhum jogo aprovado ainda.</p>
-			<p class="mt-2 text-slate-600">
-				Os jogos aparecerão aqui depois que uma revisão for aprovada.
-			</p>
-			<div class="mt-6 flex flex-wrap justify-center gap-3">
-				<a href="/submit" class="primary-button">Publicar jogo</a>
-				<a href="/pending" class="secondary-button">Ver revisões</a>
+				<a href={resolve('/submit')} class="primary-button">Publicar jogo</a>
+				<a href={resolve('/pending')} class="secondary-button">Ver revisões</a>
+			</EmptyState>
+		{:else if filteredGames.length === 0}
+			<EmptyState
+				title="Nenhum jogo corresponde aos filtros"
+				description="Tente remover um filtro ou usar outro termo de busca."
+			>
+				<button type="button" onclick={clearFilters} class="secondary-button"
+					>Mostrar catálogo completo</button
+				>
+			</EmptyState>
+		{:else}
+			<div class="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+				{#each filteredGames as game (game.id)}
+					<GameCard {game} />
+				{/each}
 			</div>
-		</div>
-	{:else if filteredGames.length === 0}
-		<div
-			class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white/70 p-12 text-center"
-		>
-			<p class="text-xl font-bold text-slate-800">Nenhum jogo corresponde aos filtros.</p>
-			<button
-				type="button"
-				on:click={() => {
-					search = '';
-					runtime = 'all';
-				}}
-				class="mt-4 font-bold text-indigo-700 hover:underline"
-			>
-				Mostrar catálogo completo
-			</button>
-		</div>
-	{:else}
-		<div class="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-			{#each filteredGames as game (game.id)}
-				<GameCard {game} />
-			{/each}
-		</div>
-	{/if}
+		{/if}
+	</div>
 </main>

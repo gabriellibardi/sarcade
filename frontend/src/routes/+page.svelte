@@ -1,6 +1,11 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { apiRequest, errorMessage } from '$lib/api';
 	import GameCard from '$lib/components/GameCard.svelte';
+	import Alert from '$lib/components/ui/Alert.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import LoadingCards from '$lib/components/ui/LoadingCards.svelte';
 	import type { GameSummary } from '$lib/types/game';
 
 	let games: GameSummary[] = [];
@@ -16,17 +21,9 @@
 		error = '';
 
 		try {
-			const response = await fetch('/api/games');
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok || !Array.isArray(result)) {
-				error = 'Não foi possível carregar o catálogo agora.';
-				return;
-			}
-
-			games = result;
+			games = await apiRequest<GameSummary[]>('/api/games');
 		} catch (loadError) {
-			error = 'Falha ao conectar com o servidor.';
+			error = errorMessage(loadError, 'Não foi possível carregar o catálogo agora.');
 			console.error(loadError);
 		} finally {
 			isLoading = false;
@@ -58,8 +55,8 @@
 				</p>
 
 				<div class="mt-8 flex flex-wrap gap-3">
-					<a href="/catalog" class="primary-button">Explorar catálogo</a>
-					<a href="/submit" class="secondary-button">Publicar meu jogo</a>
+					<a href={resolve('/catalog')} class="primary-button">Explorar catálogo</a>
+					<a href={resolve('/submit')} class="secondary-button">Publicar meu jogo</a>
 				</div>
 			</div>
 
@@ -106,7 +103,7 @@
 	<section class="mx-auto max-w-6xl px-5 py-14 sm:px-6">
 		<div class="grid gap-4 md:grid-cols-3">
 			<a
-				href="/catalog"
+				href={resolve('/catalog')}
 				class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md"
 			>
 				<span
@@ -119,7 +116,7 @@
 				</p>
 			</a>
 			<a
-				href="/catalog"
+				href={resolve('/catalog')}
 				class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md"
 			>
 				<span
@@ -132,7 +129,7 @@
 				</p>
 			</a>
 			<a
-				href="/submit"
+				href={resolve('/submit')}
 				class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md"
 			>
 				<span
@@ -154,33 +151,21 @@
 				<h2 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Jogos em destaque</h2>
 				<p class="mt-2 text-slate-600">Projetos aprovados e prontos para receber jogadores.</p>
 			</div>
-			<a href="/catalog" class="secondary-button py-2.5 text-sm">Ver todos</a>
+			<a href={resolve('/catalog')} class="secondary-button py-2.5 text-sm">Ver todos</a>
 		</div>
 
 		{#if isLoading}
-			<div class="grid gap-5 md:grid-cols-3" aria-label="Carregando jogos">
-				{#each Array(3) as _}
-					<div class="h-96 animate-pulse rounded-2xl border border-slate-200 bg-white"></div>
-				{/each}
-			</div>
+			<LoadingCards />
 		{:else if error}
-			<div class="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-800">
-				<p>{error}</p>
-				<button type="button" on:click={loadGames} class="mt-3 font-bold underline"
-					>Tentar novamente</button
-				>
-			</div>
+			<Alert tone="error" message={error} onRetry={loadGames} />
 		{:else if previewGames.length === 0}
-			<div class="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-10 text-center">
-				<p class="text-lg font-bold text-slate-800">O catálogo ainda está vazio.</p>
-				<p class="mt-2 text-slate-600">
-					Publique um jogo ou aprove uma revisão para ele aparecer aqui.
-				</p>
-				<div class="mt-5 flex flex-wrap justify-center gap-3">
-					<a href="/submit" class="primary-button">Publicar jogo</a>
-					<a href="/pending" class="secondary-button">Ver revisões</a>
-				</div>
-			</div>
+			<EmptyState
+				title="O catálogo ainda está vazio"
+				description="Publique um jogo ou aprove uma revisão para ele aparecer aqui."
+			>
+				<a href={resolve('/submit')} class="primary-button">Publicar jogo</a>
+				<a href={resolve('/pending')} class="secondary-button">Ver revisões</a>
+			</EmptyState>
 		{:else}
 			<div class="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
 				{#each previewGames as game (game.id)}

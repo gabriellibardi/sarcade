@@ -19,17 +19,51 @@
 	body {
 		margin: 0;
 		min-width: 320px;
+		min-height: 100vh;
 		background:
-			radial-gradient(circle at top left, rgb(224 231 255 / 55%), transparent 28rem), #f8fafc;
+			radial-gradient(circle at 8% 0%, rgb(224 231 255 / 70%), transparent 30rem),
+			radial-gradient(circle at 92% 18%, rgb(224 242 254 / 55%), transparent 24rem), #f8fafc;
 	}
 
 	button,
 	a {
 		-webkit-tap-highlight-color: transparent;
 	}
+
+	::selection {
+		background: #c7d2fe;
+		color: #1e1b4b;
+	}
+
+	:focus-visible {
+		outline: 3px solid rgb(99 102 241 / 35%);
+		outline-offset: 2px;
+	}
 }
 
 @layer components {
+	.page-shell {
+		width: 100%;
+		max-width: 72rem;
+		margin-inline: auto;
+		padding: 3rem 1.25rem;
+	}
+
+	.surface-card {
+		border: 1px solid #e2e8f0;
+		border-radius: 1.5rem;
+		background: rgb(255 255 255 / 94%);
+		box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+	}
+
+	.eyebrow {
+		font-size: 0.75rem;
+		font-weight: 800;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: #4f46e5;
+	}
+
 	.nav-link {
 		border-radius: 0.65rem;
 		padding: 0.6rem 0.75rem;
@@ -63,6 +97,13 @@
 		transform: translateY(-1px);
 	}
 
+	.primary-button:disabled,
+	.secondary-button:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+		transform: none;
+	}
+
 	.secondary-button {
 		display: inline-flex;
 		align-items: center;
@@ -81,5 +122,59 @@
 	.secondary-button:hover {
 		border-color: #a5b4fc;
 		background: #eef2ff;
+	}
+
+	.ghost-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.7rem;
+		font-weight: 700;
+		color: #64748b;
+		transition:
+			background-color 150ms ease,
+			color 150ms ease;
+	}
+
+	.ghost-button:hover {
+		background: #f1f5f9;
+		color: #0f172a;
+	}
+
+	.form-label {
+		display: block;
+		margin-bottom: 0.4rem;
+		font-size: 0.875rem;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.form-control {
+		display: block;
+		width: 100%;
+		border-color: #cbd5e1;
+		border-radius: 0.75rem;
+		background: white;
+		font-size: 0.9375rem;
+		transition:
+			border-color 150ms ease,
+			box-shadow 150ms ease;
+	}
+
+	.form-control:focus {
+		border-color: #6366f1;
+		box-shadow: 0 0 0 3px rgb(99 102 241 / 15%);
+	}
+
+	@media (min-width: 640px) {
+		.page-shell {
+			padding-inline: 1.5rem;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.page-shell {
+			padding-block: 4rem;
+		}
 	}
 }

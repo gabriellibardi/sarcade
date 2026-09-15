@@ -1,42 +1,46 @@
-# sv
+# Frontend do Sarcade
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Interface SvelteKit do Sarcade. O build usa o adapter estático e é incorporado ao executável Rust
+do projeto. Durante o desenvolvimento, o Vite encaminha `/api` e conexões WebSocket ao backend em
+`http://127.0.0.1:3000`.
 
-## Creating a project
+## Organização
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
+```text
+src/
+├─ lib/
+│  ├─ api.ts              # leitura uniforme de respostas e erros HTTP
+│  ├─ auth.ts             # estado da sessão do usuário
+│  ├─ components/
+│  │  ├─ forms/           # controles de formulário reutilizáveis
+│  │  ├─ layout/          # cabeçalho e rodapé globais
+│  │  ├─ review/          # apresentação do fluxo de revisão
+│  │  ├─ room/            # lobby, jogo, controles e diagnóstico da sala
+│  │  └─ ui/              # feedback, estados vazios, cabeçalhos e avatar
+│  ├─ types/              # contratos recebidos do backend, por domínio
+│  └─ utils/              # formatação sem estado
+└─ routes/                # composição das páginas e coordenação dos fluxos
 ```
 
-To recreate this project with the same configuration:
+As páginas devem concentrar carregamento, navegação e coordenação. Apresentações reutilizáveis,
+contratos de domínio e funções sem estado pertencem a `lib/`.
 
-```sh
-# recreate this project
-npx sv@0.15.2 create --template minimal --types ts --install npm frontend
-```
+## Desenvolvimento
 
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Com o backend iniciado na porta 3000:
 
 ```sh
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
-
-To create a production version of your app:
+## Verificações
 
 ```sh
+npm run format
+npm run lint
+npm run check
 npm run build
 ```
 
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+O comando `npm run lint` valida tanto o formato do Prettier quanto as regras do ESLint. O comando
+`npm run check` executa a análise de tipos e os diagnósticos do Svelte.

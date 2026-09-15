@@ -1,11 +1,10 @@
 import { writable } from 'svelte/store';
+import { apiRequest } from '$lib/api';
+import type { AuthUser } from '$lib/types/user';
 
-export type AuthUser = {
-	id: number;
-	email: string;
-	name: string;
-	avatar: string | null;
-	is_admin: boolean;
+type AuthResponse = {
+	user: AuthUser | null;
+	google_oauth_enabled: boolean;
 };
 
 type AuthState = {
@@ -29,16 +28,10 @@ export function loadAuth(force = false): Promise<void> {
 		return pendingLoad;
 	}
 
-	pendingLoad = fetch('/api/auth/me')
-		.then(async (response) => {
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok || !result) {
-				throw new Error('Não foi possível consultar a sessão.');
-			}
-
+	pendingLoad = apiRequest<AuthResponse>('/api/auth/me')
+		.then((result) => {
 			authState.set({
-				user: result.user ?? null,
+				user: result.user,
 				googleOAuthEnabled: Boolean(result.google_oauth_enabled),
 				isLoading: false,
 				error: ''
@@ -61,11 +54,7 @@ export function loadAuth(force = false): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-	const response = await fetch('/api/auth/logout', { method: 'POST' });
-
-	if (!response.ok) {
-		throw new Error('Não foi possível sair da conta.');
-	}
+	await apiRequest('/api/auth/logout', { method: 'POST' });
 
 	authState.update((state) => ({ ...state, user: null, error: '' }));
 }

@@ -1,0 +1,22 @@
+export type ReviewDetails = {
+	id: number;
+	revision_id: number;
+	title: string;
+	description: string;
+	source_code: string;
+	status: string;
+	min_players: number;
+	max_players: number;
+	author_id: number | null;
+	author_name: string | null;
+	is_featured: boolean;
+	review_message: string | null;
+	created_at: string;
+	reviewed_at: string | null;
+	has_thumbnail: boolean;
+	runtime_build_id: string;
+	runtime: string;
+	runtime_name: string;
+	runtime_version: string;
+	source_extension: string;
+};

@@ -3,8 +3,14 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { ApiError, apiRequest, errorMessage } from '$lib/api';
 	import { authState } from '$lib/auth';
+	import Alert from '$lib/components/ui/Alert.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import type { PublishedGameDetails } from '$lib/types/game';
+	import { formatDate, playerCountLabel } from '$lib/utils/format';
+
+	type CreateRoomResponse = { code: string; host_token: string };
 
 	let game: PublishedGameDetails | null = null;
 	let nickname = '';
@@ -17,11 +23,7 @@
 
 	const gameId = Number(page.params.id);
 
-	$: playerLabel = game
-		? game.min_players === game.max_players
-			? `${game.min_players} ${game.min_players === 1 ? 'jogador' : 'jogadores'}`
-			: `${game.min_players}–${game.max_players} jogadores`
-		: '';
+	$: playerLabel = game ? playerCountLabel(game.min_players, game.max_players) : '';
 
 	async function loadGame() {
 		isLoading = true;
@@ -35,23 +37,14 @@
 		}
 
 		try {
-			const response = await fetch(`/api/games/${gameId}`);
-
-			if (response.status === 404) {
+			game = await apiRequest<PublishedGameDetails>(`/api/games/${gameId}`);
+		} catch (error) {
+			if (error instanceof ApiError && error.status === 404) {
 				notFound = true;
 				return;
 			}
 
-			const result = await response.json().catch(() => null);
-
-			if (!response.ok || !result) {
-				loadError = 'Não foi possível carregar este jogo.';
-				return;
-			}
-
-			game = result;
-		} catch (error) {
-			loadError = 'Falha ao conectar com o servidor.';
+			loadError = errorMessage(error, 'Não foi possível carregar este jogo.');
 			console.error(error);
 		} finally {
 			isLoading = false;
@@ -72,27 +65,11 @@
 		isCreating = true;
 
 		try {
-			const response = await fetch('/api/rooms', {
+			const result = await apiRequest<CreateRoomResponse>('/api/rooms', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ game_id: game.id, nickname })
 			});
-			const responseBody = await response.text();
-			let result: { code?: string; host_token?: string; message?: string } | string | null = null;
-
-			try {
-				result = responseBody ? JSON.parse(responseBody) : null;
-			} catch {
-				result = responseBody;
-			}
-
-			if (!response.ok || typeof result === 'string' || !result?.code || !result.host_token) {
-				createError =
-					typeof result === 'string'
-						? result
-						: (result?.message ?? 'Não foi possível criar a sala.');
-				return;
-			}
 
 			await goto(
 				resolve(
@@ -101,22 +78,11 @@
 				)
 			);
 		} catch (error) {
-			createError = 'Falha ao conectar com o servidor.';
+			createError = errorMessage(error, 'Não foi possível criar a sala.');
 			console.error(error);
 		} finally {
 			isCreating = false;
 		}
-	}
-
-	function formatDate(value: string | null) {
-		if (!value) return null;
-
-		const normalized = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
-		const date = new Date(normalized);
-
-		return Number.isNaN(date.getTime())
-			? null
-			: new Intl.DateTimeFormat('pt-BR', { dateStyle: 'long' }).format(date);
 	}
 
 	onMount(() => {
@@ -154,20 +120,16 @@
 			<div class="h-80 rounded-3xl bg-white"></div>
 		</div>
 	{:else if notFound}
-		<section
-			class="mt-7 rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"
-		>
-			<h1 class="text-3xl font-black text-slate-950">Jogo não encontrado</h1>
-			<p class="mt-3 text-slate-600">Ele pode não existir ou ainda não estar aprovado.</p>
-			<a href={resolve('/catalog')} class="primary-button mt-6">Explorar jogos publicados</a>
-		</section>
-	{:else if loadError}
-		<section class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-6 text-red-800">
-			<p>{loadError}</p>
-			<button type="button" on:click={loadGame} class="mt-3 font-bold underline"
-				>Tentar novamente</button
+		<div class="mt-7">
+			<EmptyState
+				title="Jogo não encontrado"
+				description="Ele pode não existir ou ainda não estar aprovado."
 			>
-		</section>
+				<a href={resolve('/catalog')} class="primary-button">Explorar jogos publicados</a>
+			</EmptyState>
+		</div>
+	{:else if loadError}
+		<div class="mt-7"><Alert tone="error" message={loadError} onRetry={loadGame} /></div>
 	{:else if game}
 		<div class="mt-7 grid items-start gap-8 lg:grid-cols-[1.3fr_0.7fr]">
 			<article class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -239,13 +201,19 @@
 					Escolha como os outros jogadores verão você e compartilhe o convite após criar a sala.
 				</p>
 
-				<form on:submit|preventDefault={createRoom} class="mt-6 space-y-4">
+				<form
+					onsubmit={(event) => {
+						event.preventDefault();
+						void createRoom();
+					}}
+					class="mt-6 space-y-4"
+				>
 					<label class="block">
 						<span class="mb-1.5 block text-sm font-bold text-slate-700">Seu nickname</span>
 						<input
 							type="text"
 							bind:value={nickname}
-							on:input={() => (nicknameWasEdited = true)}
+							oninput={() => (nicknameWasEdited = true)}
 							required
 							maxlength="30"
 							autocomplete="nickname"
@@ -264,9 +232,7 @@
 				</form>
 
 				{#if createError}
-					<p class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-						{createError}
-					</p>
+					<div class="mt-4"><Alert tone="error" message={createError} /></div>
 				{/if}
 			</aside>
 		</div>

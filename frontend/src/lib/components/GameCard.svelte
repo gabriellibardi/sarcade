@@ -1,18 +1,15 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { GameSummary } from '$lib/types/game';
+	import { playerCountLabel } from '$lib/utils/format';
 
 	let { game }: { game: GameSummary } = $props();
 
-	const playerLabel = $derived(
-		game.min_players === game.max_players
-			? `${game.min_players} ${game.min_players === 1 ? 'jogador' : 'jogadores'}`
-			: `${game.min_players}–${game.max_players} jogadores`
-	);
+	const playerLabel = $derived(playerCountLabel(game.min_players, game.max_players));
 </script>
 
 <article
-	class="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:border-indigo-200 hover:shadow-lg"
+	class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-100/60"
 >
 	<div
 		class="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-indigo-100 via-sky-50 to-amber-100"
