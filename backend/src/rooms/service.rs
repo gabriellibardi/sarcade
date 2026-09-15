@@ -7,6 +7,10 @@ use std::{
 use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::broadcast;
 
+use backend::game_runtime::{
+    RuntimeCommand, RuntimeHandle, RuntimeInputEvent, RuntimeOutput, RuntimePlayer,
+};
+
 use crate::rooms::{
     model::{
         InputEvent, Player, Room, RoomError, RoomSnapshot, RoomStatus, ServerMessage,
@@ -42,6 +46,8 @@ pub fn create_room(
     let host_token = random_token(32);
 
     let (tx, _) = broadcast::channel(100);
+    let (runtime, runtime_outputs) = RuntimeHandle::reserve(game_id);
+    forward_runtime_outputs(runtime_outputs, tx.clone());
 
     let room = Room {
         code: code.clone(),
@@ -54,6 +60,7 @@ pub fn create_room(
         next_player_id: 1,
         players: Vec::new(),
         tx,
+        runtime,
         created_at: Instant::now(),
     };
 
@@ -177,8 +184,13 @@ pub fn leave_room(
     }
 
     if room.players.is_empty() {
+        let _ = room.runtime.send(RuntimeCommand::Stop);
         rooms.remove(code);
         return Ok(());
+    }
+
+    if room.status == RoomStatus::Running {
+        let _ = room.runtime.send(RuntimeCommand::PlayerLeft { player_id });
     }
 
     let snapshot = room_snapshot(room);
@@ -208,6 +220,20 @@ pub fn start_room(
     if room.players.len() < room.min_players as usize {
         return Err(RoomError::InsufficientPlayers);
     }
+
+    room.runtime
+        .send(RuntimeCommand::Start {
+            game_id: room.game_id,
+            players: room
+                .players
+                .iter()
+                .map(|player| RuntimePlayer {
+                    id: player.id,
+                    nickname: player.nickname.clone(),
+                })
+                .collect(),
+        })
+        .map_err(|_| RoomError::RuntimeUnavailable)?;
 
     room.status = RoomStatus::Running;
 
@@ -240,6 +266,12 @@ pub fn kick_player(
     }
 
     room.players.retain(|player| player.id != target_id);
+
+    if room.status == RoomStatus::Running {
+        let _ = room.runtime.send(RuntimeCommand::PlayerLeft {
+            player_id: target_id,
+        });
+    }
 
     if room.host_player_id == Some(target_id) {
         room.host_player_id = None;
@@ -311,12 +343,54 @@ pub fn broadcast_input(
         return Err(RoomError::NotRunning);
     }
 
-    let _ = room.tx.send(ServerMessage::Input {
-        player_id,
-        event,
-    });
+    room.runtime
+        .send(RuntimeCommand::Input {
+            player_id,
+            event: runtime_input_event(event),
+        })
+        .map_err(|_| RoomError::RuntimeUnavailable)?;
 
     Ok(())
+}
+
+fn runtime_input_event(event: InputEvent) -> RuntimeInputEvent {
+    match event {
+        InputEvent::KeyDown { key } => RuntimeInputEvent::KeyDown { key },
+        InputEvent::KeyUp { key } => RuntimeInputEvent::KeyUp { key },
+        InputEvent::PadDown { input } => RuntimeInputEvent::PadDown { input },
+        InputEvent::PadUp { input } => RuntimeInputEvent::PadUp { input },
+    }
+}
+
+fn forward_runtime_outputs(
+    mut outputs: tokio::sync::mpsc::Receiver<RuntimeOutput>,
+    tx: broadcast::Sender<ServerMessage>,
+) {
+    tokio::spawn(async move {
+        while let Some(output) = outputs.recv().await {
+            let message = match output {
+                RuntimeOutput::Frame { player_id, svg } => match String::from_utf8(svg) {
+                    Ok(svg) if svg.trim_start().starts_with("<svg") => {
+                        ServerMessage::Frame { player_id, svg }
+                    }
+                    Ok(_) => ServerMessage::Error {
+                        message: "Runtime respondeu um frame que não é SVG".into(),
+                    },
+                    Err(_) => ServerMessage::Error {
+                        message: "Runtime respondeu um SVG com UTF-8 inválido".into(),
+                    },
+                },
+                RuntimeOutput::Failed(error) => {
+                    tracing::error!(%error, "runtime da partida falhou");
+                    ServerMessage::Error {
+                        message: "Runtime da partida foi encerrado".into(),
+                    }
+                }
+            };
+
+            let _ = tx.send(message);
+        }
+    });
 }
 
 fn ensure_host(room: &Room, player_id: u64) -> Result<(), RoomError> {

@@ -115,6 +115,10 @@ async fn handle_room_socket(
                     break;
                 };
 
+                if !message.is_for_player(player_id) {
+                    continue;
+                }
+
                 let should_close = matches!(
                     &message,
                     ServerMessage::PlayerKicked { player_id: kicked_id, .. }

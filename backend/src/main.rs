@@ -12,6 +12,15 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("runtime-stub") {
+        if let Err(error) = backend::game_runtime::process::run_stub_from_args(args.next()).await {
+            eprintln!("runtime reserva falhou: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()

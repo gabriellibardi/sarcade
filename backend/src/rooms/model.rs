@@ -3,6 +3,8 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+use backend::game_runtime::RuntimeHandle;
+
 #[derive(Clone)]
 pub struct Room {
     pub code: String,
@@ -19,6 +21,7 @@ pub struct Room {
     pub players: Vec<Player>,
 
     pub tx: broadcast::Sender<ServerMessage>,
+    pub runtime: RuntimeHandle,
 
     pub created_at: Instant,
 }
@@ -148,6 +151,13 @@ pub enum ServerMessage {
         event: InputEvent,
     },
 
+    #[serde(rename = "frame")]
+    Frame {
+        #[serde(skip)]
+        player_id: u64,
+        svg: String,
+    },
+
     #[serde(rename = "error")]
     Error {
         message: String,
@@ -155,6 +165,18 @@ pub enum ServerMessage {
 
     #[serde(rename = "pong")]
     Pong,
+}
+
+impl ServerMessage {
+    pub fn is_for_player(&self, player_id: u64) -> bool {
+        !matches!(
+            self,
+            Self::Frame {
+                player_id: target_id,
+                ..
+            } if *target_id != player_id
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -170,6 +192,7 @@ pub enum RoomError {
     CannotKickSelf,
     AlreadyRunning,
     NotRunning,
+    RuntimeUnavailable,
 }
 
 impl RoomError {
@@ -186,6 +209,46 @@ impl RoomError {
             RoomError::CannotKickSelf => "O host não pode expulsar a si mesmo",
             RoomError::AlreadyRunning => "A partida já foi iniciada",
             RoomError::NotRunning => "A partida ainda não foi iniciada",
+            RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServerMessage;
+
+    #[test]
+    fn targeted_frame_is_visible_only_to_its_player() {
+        let frame = ServerMessage::Frame {
+            player_id: 7,
+            svg: "<svg/>".into(),
+        };
+
+        assert!(frame.is_for_player(7));
+        assert!(!frame.is_for_player(8));
+    }
+
+    #[test]
+    fn websocket_frame_omits_internal_routing_metadata() {
+        let frame = ServerMessage::Frame {
+            player_id: 7,
+            svg: "<svg/>".into(),
+        };
+        let json = serde_json::to_value(frame).unwrap();
+
+        assert_eq!(json["type"], "frame");
+        assert_eq!(json["svg"], "<svg/>");
+        assert!(json.get("player_id").is_none());
+    }
+
+    #[test]
+    fn room_events_remain_visible_to_every_player() {
+        let error = ServerMessage::Error {
+            message: "falha".into(),
+        };
+
+        assert!(error.is_for_player(1));
+        assert!(error.is_for_player(2));
     }
 }
