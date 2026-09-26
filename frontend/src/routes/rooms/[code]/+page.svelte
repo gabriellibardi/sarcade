@@ -4,7 +4,6 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
-	import EventLog from '$lib/components/room/EventLog.svelte';
 	import GameControls from '$lib/components/room/GameControls.svelte';
 	import GameViewport from '$lib/components/room/GameViewport.svelte';
 	import RoomJoinForm from '$lib/components/room/RoomJoinForm.svelte';
@@ -24,7 +23,6 @@
 
 	let message = '';
 	let error = '';
-	let events: string[] = [];
 	let frameSvg = '';
 
 	let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
@@ -89,15 +87,9 @@
 			try {
 				data = JSON.parse(event.data);
 			} catch (err) {
-				addEvent('Mensagem inválida recebida do servidor.');
+				error = 'O servidor enviou uma mensagem inválida.';
 				console.error(err);
 				return;
-			}
-
-			if (data.type === 'frame') {
-				addEvent(`Frame SVG recebido (${data.svg.length} caracteres).`);
-			} else {
-				addEvent(event.data);
 			}
 
 			handleServerMessage(data);
@@ -234,7 +226,7 @@
 		});
 	}
 
-	function sendPad(input: string) {
+	function sendPadDown(input: string) {
 		sendMessage({
 			type: 'paddown',
 			input
@@ -246,11 +238,6 @@
 			type: 'padup',
 			input
 		});
-	}
-
-	function sendPadPress(input: string) {
-		sendPad(input);
-		sendPadUp(input);
 	}
 
 	function isEditableTarget(target: EventTarget | null) {
@@ -349,7 +336,6 @@
 		amHost = false;
 		room = null;
 		frameSvg = '';
-		events = [];
 		pressedKeys.clear();
 	}
 
@@ -369,10 +355,6 @@
 		} else {
 			await goto(resolve('/catalog'), { replaceState: true });
 		}
-	}
-
-	function addEvent(value: string) {
-		events = [value, ...events].slice(0, 30);
 	}
 
 	function copyRoomUrl() {
@@ -432,6 +414,15 @@
 			<RoomJoinForm bind:nickname {isConnecting} onJoin={connect} />
 		{/if}
 
+		{#if room?.status === 'running'}
+			<div
+				class="mx-auto flex min-h-[calc(100vh-13rem)] w-full max-w-4xl flex-col justify-center gap-5"
+			>
+				<GameViewport {frameUrl} />
+				<GameControls enabled={keyboardEnabled} onPadDown={sendPadDown} onPadUp={sendPadUp} />
+			</div>
+		{/if}
+
 		{#if room}
 			<RoomLobby
 				{room}
@@ -442,10 +433,6 @@
 				onKick={sendKick}
 				onPromote={sendPromote}
 			/>
-			<GameViewport {frameUrl} />
-			<GameControls enabled={keyboardEnabled} onPress={sendPadPress} />
 		{/if}
-
-		<EventLog {events} />
 	</div>
 </main>

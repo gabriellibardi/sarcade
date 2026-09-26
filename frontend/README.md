@@ -15,7 +15,7 @@ src/
 │  │  ├─ forms/           # controles de formulário reutilizáveis
 │  │  ├─ layout/          # cabeçalho e rodapé globais
 │  │  ├─ review/          # apresentação do fluxo de revisão
-│  │  ├─ room/            # lobby, jogo, controles e diagnóstico da sala
+│  │  ├─ room/            # lobby, jogo e controles da sala
 │  │  └─ ui/              # feedback, estados vazios, cabeçalhos e avatar
 │  ├─ types/              # contratos recebidos do backend, por domínio
 │  └─ utils/              # formatação sem estado
