@@ -3,7 +3,7 @@
 	import SiteFooter from '$lib/components/layout/SiteFooter.svelte';
 	import SiteHeader from '$lib/components/layout/SiteHeader.svelte';
 	import { loadAuth } from '$lib/auth';
-	import favicon from '$lib/assets/favicon.svg';
+	import logotipo from '$lib/assets/logotipo.svg';
 	import './layout.css';
 
 	let { children } = $props();
@@ -12,7 +12,7 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href={logotipo} />
 	<meta
 		name="description"
 		content="Sarcade: jogos educacionais criados com linguagens para estudantes."

@@ -9,17 +9,14 @@
 	}: { message: string; title?: string; tone?: Tone; onRetry?: () => void } = $props();
 
 	const toneClasses: Record<Tone, string> = {
-		info: 'border-indigo-200 bg-indigo-50 text-indigo-900',
-		success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-		warning: 'border-amber-200 bg-amber-50 text-amber-900',
-		error: 'border-red-200 bg-red-50 text-red-900'
+		info: 'border-indigo-300 bg-[#1c2035] text-indigo-900 shadow-[4px_4px_0_#3d1a62]',
+		success: 'border-emerald-600 bg-[#14281f] text-emerald-100 shadow-[4px_4px_0_#143b2c]',
+		warning: 'border-amber-500 bg-[#2b2112] text-amber-100 shadow-[4px_4px_0_#5b3c13]',
+		error: 'border-red-500 bg-[#2d181a] text-red-100 shadow-[4px_4px_0_#511243]'
 	};
 </script>
 
-<div
-	class={`rounded-2xl border p-5 ${toneClasses[tone]}`}
-	role={tone === 'error' ? 'alert' : 'status'}
->
+<div class={`border-2 p-5 ${toneClasses[tone]}`} role={tone === 'error' ? 'alert' : 'status'}>
 	{#if title}
 		<p class="font-bold">{title}</p>
 	{/if}

@@ -23,14 +23,14 @@
 
 <section class="surface-card overflow-hidden">
 	<div
-		class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-5"
+		class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-6 py-5"
 	>
 		<div>
 			<p class="text-xs font-bold tracking-widest text-slate-400 uppercase">Lobby</p>
-			<h2 class="mt-1 text-xl font-black text-slate-950">Participantes</h2>
+			<h2 class="display-title mt-2 text-xl text-slate-950">Participantes</h2>
 		</div>
 		<span
-			class={`rounded-full px-3 py-1 text-xs font-bold ${room.status === 'waiting' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}
+			class={`status-chip px-3 py-1 text-xs font-bold ${room.status === 'waiting' ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}
 		>
 			{room.status === 'waiting' ? 'Aguardando' : 'Em partida'}
 		</span>
@@ -41,11 +41,11 @@
 			<ul class="space-y-2">
 				{#each room.players as player (player.id)}
 					<li
-						class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3"
+						class="flex flex-wrap items-center justify-between gap-3 border-2 border-slate-200 bg-slate-50/70 p-3"
 					>
 						<div class="flex min-w-0 items-center gap-3">
 							<span
-								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-sm font-black text-indigo-700 shadow-sm"
+								class="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-indigo-300 bg-indigo-100 font-mono text-sm font-black text-indigo-300"
 								>{player.id}</span
 							>
 							<div class="min-w-0">
@@ -68,7 +68,7 @@
 								<button
 									type="button"
 									onclick={() => onKick(player.id)}
-									class="ghost-button px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50"
+									class="ghost-button px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-950/30"
 									>Remover</button
 								>
 							</div>
@@ -78,7 +78,9 @@
 			</ul>
 		</div>
 
-		<aside class="rounded-2xl bg-slate-950 p-5 text-sm text-slate-300">
+		<aside
+			class="border-2 border-indigo-300 bg-[#11131d] p-5 text-sm text-slate-300 shadow-[4px_4px_0_#3d1a62]"
+		>
 			<p class="text-xs font-bold tracking-widest text-indigo-300 uppercase">Partida</p>
 			<dl class="mt-4 space-y-3">
 				<div>

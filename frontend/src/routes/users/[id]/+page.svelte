@@ -53,7 +53,9 @@
 </svelte:head>
 
 <main class="mx-auto max-w-6xl px-5 py-12 sm:px-6 lg:py-16">
-	<a href={resolve('/catalog')} class="text-sm font-bold text-indigo-700 hover:underline"
+	<a
+		href={resolve('/catalog')}
+		class="font-mono text-xs font-bold text-indigo-300 uppercase hover:underline"
 		>← Voltar ao catálogo</a
 	>
 
@@ -71,14 +73,12 @@
 	{:else if error}
 		<div class="mt-7"><Alert tone="error" message={error} onRetry={loadProfile} /></div>
 	{:else if profile}
-		<header
-			class="mt-7 flex flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm sm:flex-row sm:items-center"
-		>
+		<header class="surface-card mt-7 flex flex-col gap-5 p-7 sm:flex-row sm:items-center">
 			<UserAvatar name={profile.name} avatar={profile.avatar} size="large" />
 
 			<div>
-				<p class="text-sm font-bold tracking-widest text-indigo-600 uppercase">Autor no Sarcade</p>
-				<h1 class="mt-1 text-4xl font-black tracking-tight text-slate-950">{profile.name}</h1>
+				<p class="eyebrow">Autor no Sarcade</p>
+				<h1 class="display-title mt-2 text-4xl text-slate-950">{profile.name}</h1>
 				<p class="mt-2 text-slate-600">
 					Membro desde {formatDate(profile.created_at, { month: 'long', year: 'numeric' }) ??
 						'data não informada'} · {profile.published_games.length === 1
@@ -89,7 +89,7 @@
 		</header>
 
 		<section class="mt-12">
-			<h2 class="text-3xl font-black tracking-tight text-slate-950">Jogos publicados</h2>
+			<h2 class="display-title text-3xl text-slate-950">Jogos publicados</h2>
 
 			{#if profile.published_games.length === 0}
 				<div class="mt-6">

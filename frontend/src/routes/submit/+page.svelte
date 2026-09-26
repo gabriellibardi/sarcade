@@ -135,9 +135,9 @@
 		{#if $authState.isLoading}
 			<div class="surface-card h-40 animate-pulse" aria-label="Verificando sessão"></div>
 		{:else if !$authState.user}
-			<section class="surface-card border-indigo-200 p-7">
+			<section class="arcade-panel-blue p-7">
 				<p class="eyebrow">Autenticação necessária</p>
-				<h2 class="mt-2 text-2xl font-black text-slate-950">Entre para publicar</h2>
+				<h2 class="display-title mt-3 text-2xl text-slate-950">Entre para publicar</h2>
 				<p class="mt-2 max-w-2xl leading-7 text-slate-600">
 					O login identifica o autor, protege a submissão e permite acompanhar a revisão.
 				</p>
@@ -147,10 +147,7 @@
 						rel="external"
 						class="primary-button mt-5 gap-2"
 					>
-						<span
-							class="flex h-5 w-5 items-center justify-center rounded-full bg-white text-xs font-black text-indigo-600"
-							aria-hidden="true">G</span
-						>
+						<span class="font-black text-white" aria-hidden="true">G</span>
 						Entrar com Google
 					</a>
 				{:else}
@@ -243,7 +240,7 @@
 						</div>
 					</fieldset>
 
-					<div class="grid gap-5 border-t border-slate-100 pt-6 sm:grid-cols-2">
+					<div class="grid gap-5 border-t-2 border-slate-200 pt-6 sm:grid-cols-2">
 						<FilePicker
 							id="sourceCode"
 							label={`Código-fonte ${selectedRuntime?.source_extension ?? ''}`}
@@ -280,7 +277,7 @@
 						</div>
 					</section>
 
-					<section class="rounded-3xl bg-slate-950 p-5 text-slate-300 shadow-lg">
+					<section class="arcade-panel-blue p-5 text-slate-300">
 						<p class="text-xs font-bold tracking-widest text-indigo-300 uppercase">
 							Compatibilidade
 						</p>

@@ -98,7 +98,7 @@
 			<button
 				type="button"
 				onclick={clearFilters}
-				class="font-semibold text-indigo-700 hover:underline"
+				class="font-mono text-xs font-bold text-indigo-300 uppercase hover:underline"
 			>
 				Limpar filtros
 			</button>

@@ -21,7 +21,7 @@
 	<input {id} type="file" {accept} bind:files {required} class="sr-only" />
 	<label for={id} class="secondary-button cursor-pointer px-4 py-2 text-sm">{buttonLabel}</label>
 	{#if files?.length}
-		<p class="mt-2 truncate text-sm text-slate-600">
+		<p class="mt-3 truncate font-mono text-xs text-slate-600">
 			Selecionado: <strong>{files[0].name}</strong>
 		</p>
 	{/if}

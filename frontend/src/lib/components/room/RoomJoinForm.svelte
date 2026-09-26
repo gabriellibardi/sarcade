@@ -8,7 +8,7 @@
 
 <section class="surface-card p-6 sm:p-8">
 	<p class="eyebrow">Participar</p>
-	<h2 class="mt-2 text-2xl font-black text-slate-950">Entrar na sala</h2>
+	<h2 class="display-title mt-3 text-2xl text-slate-950">Entrar na sala</h2>
 	<p class="mt-2 text-sm leading-6 text-slate-600">
 		Informe como os demais participantes verão você durante a partida.
 	</p>

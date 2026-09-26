@@ -104,7 +104,9 @@
 </svelte:head>
 
 <main class="page-shell max-w-5xl">
-	<a href={resolve('/pending')} class="text-sm font-bold text-indigo-700 hover:underline"
+	<a
+		href={resolve('/pending')}
+		class="font-mono text-xs font-bold text-indigo-300 uppercase hover:underline"
 		>← Voltar para a fila</a
 	>
 
@@ -116,13 +118,13 @@
 		<header class="mt-7 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
 			<div class="max-w-3xl">
 				<p class="eyebrow">Revisão #{game.revision_id}</p>
-				<h1 class="mt-2 text-4xl font-black tracking-tight text-slate-950">{game.title}</h1>
+				<h1 class="display-title mt-3 text-4xl text-slate-950">{game.title}</h1>
 				<p class="mt-3 text-slate-600">
 					Jogo #{game.id} · enviado por {game.author_name ?? 'autor não informado'}
 				</p>
 			</div>
 			<span
-				class={`rounded-full px-3 py-1.5 text-sm font-bold ${game.status === 'pending' ? 'bg-amber-100 text-amber-800' : game.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}
+				class={`status-chip px-3 py-1.5 text-sm font-bold ${game.status === 'pending' ? 'bg-amber-950 text-amber-300' : game.status === 'approved' ? 'bg-emerald-950 text-emerald-300' : 'bg-red-950 text-red-300'}`}
 			>
 				{game.status === 'pending'
 					? 'Pendente'
@@ -150,7 +152,7 @@
 
 				<section class="surface-card overflow-hidden">
 					<div
-						class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4"
+						class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-6 py-4"
 					>
 						<h2 class="text-xl font-black text-slate-950">Código-fonte</h2>
 						<code class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600"
@@ -158,7 +160,7 @@
 						>
 					</div>
 					<pre
-						class="max-h-[38rem] overflow-auto bg-slate-950 p-6 text-sm leading-6 text-slate-100"><code
+						class="max-h-[38rem] overflow-auto bg-[#0d0d0d] p-6 text-sm leading-6 text-slate-300"><code
 							>{game.source_code}</code
 						></pre>
 				</section>
@@ -222,7 +224,7 @@
 								type="button"
 								onclick={() => void approveRevision()}
 								disabled={isReviewing}
-								class="primary-button bg-emerald-600 hover:bg-emerald-700"
+								class="primary-button border-emerald-500 bg-emerald-700 shadow-[4px_4px_0_#143b2c] hover:bg-emerald-600"
 							>
 								{isReviewing ? 'Processando...' : 'Aprovar e publicar'}
 							</button>
@@ -230,7 +232,7 @@
 								type="button"
 								onclick={() => void rejectRevision()}
 								disabled={isReviewing}
-								class="secondary-button border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50"
+								class="secondary-button border-red-500 bg-[#34191c] text-red-200 shadow-[4px_4px_0_#511243] hover:border-red-400 hover:bg-[#432025]"
 							>
 								Rejeitar
 							</button>

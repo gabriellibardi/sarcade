@@ -8,7 +8,7 @@
 
 <article class="surface-card overflow-hidden p-5 sm:flex sm:gap-5">
 	<div
-		class="h-32 w-full shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-100 via-sky-50 to-amber-100 sm:w-44"
+		class="h-32 w-full shrink-0 overflow-hidden border-2 border-arcade-line bg-[linear-gradient(135deg,#25181c_0_50%,#191c2d_50%)] sm:w-44"
 	>
 		{#if game.has_thumbnail}
 			<img
@@ -26,12 +26,12 @@
 	<div class="mt-4 min-w-0 flex-1 sm:mt-0">
 		<div class="flex flex-wrap items-start justify-between gap-3">
 			<div>
-				<p class="text-xs font-bold tracking-widest text-amber-700 uppercase">
+				<p class="font-mono text-xs font-bold tracking-widest text-arcade-gold uppercase">
 					Revisão #{game.revision_id}
 				</p>
 				<h2 class="mt-1 text-xl font-black text-slate-950">{game.title}</h2>
 			</div>
-			<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+			<span class="status-chip bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
 				{game.runtime_name} · {game.runtime_version}
 			</span>
 		</div>
