@@ -418,8 +418,10 @@
 			<div
 				class="mx-auto flex min-h-[calc(100vh-13rem)] w-full max-w-4xl flex-col justify-center gap-5"
 			>
-				<GameViewport {frameUrl} />
-				<GameControls enabled={keyboardEnabled} onPadDown={sendPadDown} onPadUp={sendPadUp} />
+				<div class="relative">
+					<GameViewport {frameUrl} />
+					<GameControls enabled={keyboardEnabled} onPadDown={sendPadDown} onPadUp={sendPadUp} />
+				</div>
 			</div>
 		{/if}
 
