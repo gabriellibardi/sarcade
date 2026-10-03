@@ -51,10 +51,17 @@ nickname nem expulsar um assento durante a partida.
 
 ### WebSocket atual
 
-O endpoint de sala usa mensagens de texto JSON para lobby, administração,
-entradas e frames SVG do runtime reserva. O servidor associa cada ação ao
-`player_id` e à geração autenticados pela própria conexão. Frames direcionados
-só são enviados ao participante correspondente.
+O endpoint de sala exige o subprotocolo `sinteract.v1` e limita mensagens e
+frames recebidos a 64 KiB, o mesmo limite das mensagens de view do Sinteract.
+Ele usa mensagens de texto JSON para lobby, administração, entradas e frames
+SVG do runtime reserva. O servidor associa cada ação ao `player_id` e à geração
+autenticados pela própria conexão. Frames direcionados só são enviados ao
+participante correspondente. O servidor usa Ping/Pong do WebSocket; não há um
+segundo keep-alive no protocolo JSON.
+
+Mensagens binárias já são separadas do parser JSON, mas recebem um erro
+controlado até o `ServerCore` ser integrado. Portanto, a multiplexação está
+negociada, mas o caminho binário ainda não executa entradas do Sinteract.
 
 ## Estado alvo com Sinteract
 
@@ -81,9 +88,8 @@ define `Player 1..N`, e um mapa interno relaciona esses números aos
 
 O WebSocket existente continuará único por participante. Texto continuará
 reservado ao protocolo administrativo do Sarcade; binário será reservado às
-mensagens de view do Sinteract. O backend negociará `sinteract.v1` no upgrade,
-rejeitará tipos e tamanhos inválidos antes da decodificação e usará Ping/Pong
-do próprio WebSocket para keep-alive.
+mensagens de view do Sinteract. Quando o `ServerCore` for ligado, o backend
+entregará a ele apenas os binários autenticados da conexão correspondente.
 
 O Sarcade escolherá a frequência de ticks. O `ServerCore` impede acúmulo ao
 aguardar `tickTaken` antes de aceitar outro tick. A frequência inicial ainda

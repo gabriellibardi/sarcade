@@ -5,7 +5,8 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, Query, State,
     },
-    response::IntoResponse,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
 use futures_util::{
     stream::{SplitSink},
@@ -17,6 +18,9 @@ use crate::rooms::{
     service,
     ClientMessage, RoomStore, ServerMessage,
 };
+
+const ROOM_WS_SUBPROTOCOL: &str = "sinteract.v1";
+const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
 
 #[derive(Deserialize)]
 pub struct JoinQuery {
@@ -30,7 +34,20 @@ pub async fn room_ws(
     Path(code): Path<String>,
     Query(query): Query<JoinQuery>,
     ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+) -> Response {
+    let ws = ws
+        .protocols([ROOM_WS_SUBPROTOCOL])
+        .max_message_size(MAX_CLIENT_MESSAGE_BYTES)
+        .max_frame_size(MAX_CLIENT_MESSAGE_BYTES);
+
+    if ws.selected_protocol().is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Subprotocolo WebSocket sinteract.v1 é obrigatório",
+        )
+            .into_response();
+    }
+
     ws.on_upgrade(move |socket| {
         handle_room_socket(
             socket,
@@ -229,7 +246,13 @@ async fn handle_incoming_message(
 
         Message::Close(_) => false,
 
-        _ => true,
+        Message::Binary(_) => {
+            send_error(
+                sender,
+                "A integração binária com o Sinteract ainda não está disponível",
+            )
+            .await
+        }
     }
 }
 
@@ -258,4 +281,15 @@ fn to_ws_text(message: &ServerMessage) -> String {
     serde_json::to_string(message).unwrap_or_else(|_| {
         r#"{"type":"error","message":"Falha ao serializar mensagem"}"#.to_string()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_CLIENT_MESSAGE_BYTES, ROOM_WS_SUBPROTOCOL};
+
+    #[test]
+    fn room_socket_uses_the_sinteract_protocol_and_view_size_limit() {
+        assert_eq!(ROOM_WS_SUBPROTOCOL, "sinteract.v1");
+        assert_eq!(MAX_CLIENT_MESSAGE_BYTES, 64 * 1024);
+    }
 }

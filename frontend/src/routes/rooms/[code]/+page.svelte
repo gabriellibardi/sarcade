@@ -26,7 +26,6 @@
 	let error = '';
 	let frameSvg = '';
 
-	let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 	const WS_CONNECTING = 0;
 	const WS_OPEN = 1;
 	const WS_CLOSED = 3;
@@ -72,7 +71,8 @@
 		nickname = nickname.trim();
 		closeSocket();
 
-		const nextSocket = new WebSocket(getWsUrl());
+		const nextSocket = new WebSocket(getWsUrl(), 'sinteract.v1');
+		nextSocket.binaryType = 'arraybuffer';
 		socket = nextSocket;
 		connectionState = WS_CONNECTING;
 
@@ -81,11 +81,15 @@
 
 			connectionState = WS_OPEN;
 			message = 'Conectado à sala.';
-			startKeepAlive();
 		};
 
 		nextSocket.onmessage = (event) => {
 			if (socket !== nextSocket) return;
+
+			if (typeof event.data !== 'string') {
+				error = 'A view recebeu dados binários antes de o Sinteract estar disponível.';
+				return;
+			}
 
 			let data: RoomServerMessage;
 
@@ -107,7 +111,6 @@
 			connectionState = WS_CLOSED;
 			resetParticipationState();
 			message = 'Conexão encerrada.';
-			stopKeepAlive();
 		};
 
 		nextSocket.onerror = () => {
@@ -319,26 +322,8 @@
 		pressedKeys.clear();
 	}
 
-	function startKeepAlive() {
-		stopKeepAlive();
-
-		keepAliveInterval = setInterval(() => {
-			if (socket?.readyState === WS_OPEN) {
-				socket.send(JSON.stringify({ type: 'ping' }));
-			}
-		}, 25_000);
-	}
-
-	function stopKeepAlive() {
-		if (keepAliveInterval) {
-			clearInterval(keepAliveInterval);
-			keepAliveInterval = null;
-		}
-	}
-
 	function closeSocket() {
 		releasePressedKeys();
-		stopKeepAlive();
 
 		const currentSocket = socket;
 		socket = null;
