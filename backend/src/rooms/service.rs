@@ -9,6 +9,7 @@ use tokio::sync::broadcast;
 
 use backend::game_runtime::{
     RuntimeCommand, RuntimeHandle, RuntimeInputEvent, RuntimeOutput, RuntimePlayer,
+    RuntimeSpec,
 };
 
 use crate::rooms::{
@@ -35,9 +36,7 @@ pub struct JoinRoom {
 
 pub fn create_room(
     store: &RoomStore,
-    game_id: i64,
-    min_players: i64,
-    max_players: i64,
+    spec: RuntimeSpec,
 ) -> Result<CreatedRoom, RoomError> {
     let mut rooms = lock_rooms(store)?;
 
@@ -47,15 +46,13 @@ pub fn create_room(
     let host_token = random_token(32);
 
     let (tx, _) = broadcast::channel(100);
-    let (runtime, runtime_outputs) = RuntimeHandle::reserve(game_id);
+    let (runtime, runtime_outputs) = RuntimeHandle::reserve(spec.clone());
     forward_runtime_outputs(runtime_outputs, tx.clone());
 
     let room = Room {
         code: code.clone(),
-        game_id,
+        spec,
         status: RoomStatus::Waiting,
-        min_players,
-        max_players,
         host_token: host_token.clone(),
         host_player_id: None,
         next_player_id: 1,
@@ -101,7 +98,7 @@ pub fn join_room(
         return Err(RoomError::AlreadyRunning);
     }
 
-    if room.players.len() >= room.max_players as usize {
+    if room.players.len() >= room.spec.max_players() as usize {
         return Err(RoomError::Full);
     }
 
@@ -228,13 +225,13 @@ pub fn start_room(
         return Err(RoomError::AlreadyRunning);
     }
 
-    if room.players.len() < room.min_players as usize {
+    if room.players.len() < room.spec.min_players() as usize {
         return Err(RoomError::InsufficientPlayers);
     }
 
     room.runtime
         .send(RuntimeCommand::Start {
-            game_id: room.game_id,
+            game_id: room.spec.game_id(),
             players: room
                 .players
                 .iter()
@@ -415,14 +412,14 @@ fn ensure_host(room: &Room, player_id: u64) -> Result<(), RoomError> {
 fn room_snapshot(room: &Room) -> RoomSnapshot {
     RoomSnapshot {
         code: room.code.clone(),
-        game_id: room.game_id,
+        game_id: room.spec.game_id(),
         status: room.status.clone(),
-        min_players: room.min_players,
-        max_players: room.max_players,
+        min_players: room.spec.min_players(),
+        max_players: room.spec.max_players(),
         players: room.players.clone(),
         can_start: room.host_player_id.is_some()
             && room.status == RoomStatus::Waiting
-            && room.players.len() >= room.min_players as usize,
+            && room.players.len() >= room.spec.min_players() as usize,
     }
 }
 
@@ -461,8 +458,10 @@ fn random_token(len: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_nickname;
-    use crate::rooms::RoomError;
+    use backend::game_runtime::RuntimeSpec;
+
+    use super::{create_room, validate_nickname};
+    use crate::rooms::{RoomError, new_store};
 
     #[test]
     fn nickname_is_trimmed_and_limited_on_the_server() {
@@ -476,5 +475,34 @@ mod tests {
             validate_nickname(&"á".repeat(31)),
             Err(RoomError::NicknameTooLong)
         ));
+    }
+
+    #[tokio::test]
+    async fn created_room_keeps_the_selected_revision_and_source() {
+        let store = new_store();
+        let spec = RuntimeSpec::new(
+            9,
+            17,
+            "sgleam-0.7".into(),
+            "sgleam".into(),
+            "0.7.0".into(),
+            Some("abc123".into()),
+            Some(2),
+            ".gleam".into(),
+            "active".into(),
+            "pub fn main() { 42 }".into(),
+            2,
+            6,
+        );
+        let expected_digest = *spec.source_sha256();
+
+        let created = create_room(&store, spec).unwrap();
+        let rooms = store.lock().unwrap();
+        let room = rooms.get(&created.code).unwrap();
+
+        assert_eq!(room.spec.revision_id(), 17);
+        assert_eq!(room.spec.runtime_build_id(), "sgleam-0.7");
+        assert_eq!(room.spec.source_code(), "pub fn main() { 42 }");
+        assert_eq!(room.spec.source_sha256(), &expected_digest);
     }
 }

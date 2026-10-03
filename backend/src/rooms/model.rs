@@ -3,16 +3,13 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use backend::game_runtime::RuntimeHandle;
+use backend::game_runtime::{RuntimeHandle, RuntimeSpec};
 
 #[derive(Clone)]
 pub struct Room {
     pub code: String,
-    pub game_id: i64,
+    pub spec: RuntimeSpec,
     pub status: RoomStatus,
-
-    pub min_players: i64,
-    pub max_players: i64,
 
     pub host_token: String,
     pub host_player_id: Option<u64>,

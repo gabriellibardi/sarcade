@@ -7,7 +7,7 @@ use tokio::{
 
 use super::{
     protocol::{self, RuntimeCommand, RuntimeMessage},
-    stub,
+    stub, RuntimeSpec,
 };
 
 const COMMAND_QUEUE_CAPACITY: usize = 128;
@@ -24,11 +24,11 @@ pub enum RuntimeOutput {
 }
 
 impl RuntimeHandle {
-    pub fn reserve(game_id: i64) -> (Self, mpsc::Receiver<RuntimeOutput>) {
+    pub fn reserve(spec: RuntimeSpec) -> (Self, mpsc::Receiver<RuntimeOutput>) {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
         let (output_tx, output_rx) = mpsc::channel(OUTPUT_QUEUE_CAPACITY);
 
-        tokio::spawn(run_session(game_id, command_rx, output_tx));
+        tokio::spawn(run_session(spec, command_rx, output_tx));
 
         (
             Self {
@@ -55,7 +55,7 @@ pub enum RuntimeSendError {
 }
 
 async fn run_session(
-    game_id: i64,
+    spec: RuntimeSpec,
     mut commands: mpsc::Receiver<RuntimeMessage>,
     outputs: mpsc::Sender<RuntimeOutput>,
 ) {
@@ -76,13 +76,13 @@ async fn run_session(
         return;
     }
 
-    if let Err(error) = run_child(game_id, first, commands, &outputs).await {
+    if let Err(error) = run_child(&spec, first, commands, &outputs).await {
         let _ = outputs.send(RuntimeOutput::Failed(error.to_string())).await;
     }
 }
 
 async fn run_child(
-    game_id: i64,
+    spec: &RuntimeSpec,
     first: RuntimeMessage,
     mut commands: mpsc::Receiver<RuntimeMessage>,
     outputs: &mpsc::Sender<RuntimeOutput>,
@@ -90,7 +90,7 @@ async fn run_child(
     let executable = std::env::current_exe()?;
     let mut child = Command::new(executable)
         .arg("runtime-stub")
-        .arg(format!("game-{game_id}"))
+        .arg(format!("game-{}", spec.game_id()))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
