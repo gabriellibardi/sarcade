@@ -2,6 +2,7 @@ export type Player = {
 	id: number;
 	nickname: string;
 	is_host: boolean;
+	connected: boolean;
 };
 
 export type RoomStatus = 'waiting' | 'running';
@@ -21,7 +22,14 @@ export type GameInputEvent =
 	| { type: 'paddown' | 'padup'; input: string };
 
 export type RoomServerMessage =
-	| { type: 'joined'; player_id: number; is_host: boolean; room: RoomSnapshot }
+	| {
+			type: 'joined';
+			player_id: number;
+			is_host: boolean;
+			player_token: string;
+			room: RoomSnapshot;
+	  }
+	| { type: 'connection_replaced' }
 	| { type: 'room_state'; room: RoomSnapshot }
 	| { type: 'room_started'; room: RoomSnapshot }
 	| { type: 'host_changed'; host_player_id: number; room: RoomSnapshot }

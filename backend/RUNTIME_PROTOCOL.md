@@ -7,9 +7,11 @@ pequeno: eventos entram no processo por `stdin` e imagens SVG saem por
 
 ## Processo e ciclo de vida
 
-Cada partida iniciada possui um processo de runtime. O backend reserva uma
-sessão ao criar a sala, mas só inicia o subprocesso quando recebe o comando
-`start`. No protótipo, o backend executa a si próprio como runtime reserva:
+Cada sala reserva uma sessão de runtime. No protocolo temporário atual, o
+subprocesso ainda nasce quando recebe `start`; a migração para Sinteract fará
+o processo nascer durante a preparação da sala e validar o `hello` antes de a
+sala ficar disponível. No protótipo, o backend executa a si próprio como
+runtime reserva:
 
 ```text
 backend runtime-stub game-<id>
@@ -89,6 +91,10 @@ Outros comandos:
 { "protocol_version": 2, "type": "tick" }
 { "protocol_version": 2, "type": "stop" }
 ```
+
+Depois de `start`, a lista de jogadores é fixa. `player_left` informa a queda
+da conexão e permite ao runtime liberar entradas pressionadas, mas não remove
+o assento: o mesmo jogador pode voltar com seu token de reconexão.
 
 O comando `tick` já está reservado no contrato, mas esta integração inicial
 ainda não inicia um relógio de ticks.

@@ -35,6 +35,11 @@ pub struct Player {
     pub id: u64,
     pub nickname: String,
     pub is_host: bool,
+    pub connected: bool,
+    #[serde(skip)]
+    pub reconnect_token: String,
+    #[serde(skip)]
+    pub connection_generation: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -111,7 +116,16 @@ pub enum ServerMessage {
     Joined {
         player_id: u64,
         is_host: bool,
+        player_token: String,
         room: RoomSnapshot,
+    },
+
+    #[serde(rename = "connection_replaced")]
+    ConnectionReplaced {
+        #[serde(skip)]
+        player_id: u64,
+        #[serde(skip)]
+        connection_generation: u64,
     },
 
     #[serde(rename = "room_state")]
@@ -165,13 +179,33 @@ pub enum ServerMessage {
 }
 
 impl ServerMessage {
-    pub fn is_for_player(&self, player_id: u64) -> bool {
-        !matches!(
-            self,
+    pub fn is_for_connection(&self, player_id: u64, connection_generation: u64) -> bool {
+        match self {
             Self::Frame {
                 player_id: target_id,
                 ..
-            } if *target_id != player_id
+            } => *target_id == player_id,
+            Self::ConnectionReplaced {
+                player_id: target_id,
+                connection_generation: target_generation,
+            } => *target_id == player_id && *target_generation == connection_generation,
+            _ => true,
+        }
+    }
+
+    pub fn closes_connection(&self, player_id: u64, connection_generation: u64) -> bool {
+        matches!(
+            self,
+            Self::PlayerKicked {
+                player_id: target_id,
+                ..
+            } if *target_id == player_id
+        ) || matches!(
+            self,
+            Self::ConnectionReplaced {
+                player_id: target_id,
+                connection_generation: target_generation,
+            } if *target_id == player_id && *target_generation == connection_generation
         )
     }
 }
@@ -191,6 +225,8 @@ pub enum RoomError {
     AlreadyRunning,
     NotRunning,
     RuntimeUnavailable,
+    InvalidPlayerToken,
+    ConnectionReplaced,
 }
 
 impl RoomError {
@@ -209,13 +245,15 @@ impl RoomError {
             RoomError::AlreadyRunning => "A partida já foi iniciada",
             RoomError::NotRunning => "A partida ainda não foi iniciada",
             RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
+            RoomError::InvalidPlayerToken => "Token de reconexão inválido",
+            RoomError::ConnectionReplaced => "Esta conexão foi substituída por uma reconexão",
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ServerMessage;
+    use super::{Player, ServerMessage};
 
     #[test]
     fn targeted_frame_is_visible_only_to_its_player() {
@@ -224,8 +262,21 @@ mod tests {
             svg: "<svg/>".into(),
         };
 
-        assert!(frame.is_for_player(7));
-        assert!(!frame.is_for_player(8));
+        assert!(frame.is_for_connection(7, 1));
+        assert!(!frame.is_for_connection(8, 1));
+    }
+
+    #[test]
+    fn replacement_targets_only_the_previous_connection_generation() {
+        let replaced = ServerMessage::ConnectionReplaced {
+            player_id: 7,
+            connection_generation: 2,
+        };
+
+        assert!(replaced.is_for_connection(7, 2));
+        assert!(replaced.closes_connection(7, 2));
+        assert!(!replaced.is_for_connection(7, 3));
+        assert!(!replaced.is_for_connection(8, 2));
     }
 
     #[test]
@@ -242,12 +293,29 @@ mod tests {
     }
 
     #[test]
+    fn public_player_never_exposes_reconnection_credentials() {
+        let player = Player {
+            id: 7,
+            nickname: "Ana".into(),
+            is_host: true,
+            connected: true,
+            reconnect_token: "segredo".into(),
+            connection_generation: 3,
+        };
+        let json = serde_json::to_value(player).unwrap();
+
+        assert_eq!(json["connected"], true);
+        assert!(json.get("reconnect_token").is_none());
+        assert!(json.get("connection_generation").is_none());
+    }
+
+    #[test]
     fn room_events_remain_visible_to_every_player() {
         let error = ServerMessage::Error {
             message: "falha".into(),
         };
 
-        assert!(error.is_for_player(1));
-        assert!(error.is_for_player(2));
+        assert!(error.is_for_connection(1, 1));
+        assert!(error.is_for_connection(2, 1));
     }
 }

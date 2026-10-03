@@ -53,12 +53,12 @@
 								<p class="text-xs text-slate-500">
 									{player.id === myPlayerId ? 'Você' : 'Participante'}{player.is_host
 										? ' · host'
-										: ''}
+										: ''}{player.connected ? '' : ' · desconectado'}
 								</p>
 							</div>
 						</div>
 
-						{#if amHost && player.id !== myPlayerId}
+						{#if amHost && room.status === 'waiting' && player.id !== myPlayerId}
 							<div class="flex gap-1">
 								<button
 									type="button"

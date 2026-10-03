@@ -22,6 +22,7 @@ use crate::rooms::{
 pub struct JoinQuery {
     pub nickname: String,
     pub host_token: Option<String>,
+    pub player_token: Option<String>,
 }
 
 pub async fn room_ws(
@@ -37,6 +38,7 @@ pub async fn room_ws(
             code,
             query.nickname,
             query.host_token,
+            query.player_token,
         )
     })
 }
@@ -47,12 +49,14 @@ async fn handle_room_socket(
     code: String,
     nickname: String,
     host_token: Option<String>,
+    player_token: Option<String>,
 ) {
     let join = match service::join_room(
         &rooms,
         &code,
         nickname,
         host_token,
+        player_token,
     ) {
         Ok(join) => join,
         Err(error) => {
@@ -69,11 +73,13 @@ async fn handle_room_socket(
     };
 
     let player_id = join.player_id;
+    let connection_generation = join.connection_generation;
     let mut rx = join.rx;
 
     let joined_message = ServerMessage::Joined {
         player_id,
         is_host: join.is_host,
+        player_token: join.player_token,
         room: join.room,
     };
 
@@ -82,7 +88,7 @@ async fn handle_room_socket(
         .await
         .is_err()
     {
-        let _ = service::leave_room(&rooms, &code, player_id);
+        let _ = service::leave_room(&rooms, &code, player_id, connection_generation);
         return;
     }
 
@@ -102,6 +108,7 @@ async fn handle_room_socket(
                     &rooms,
                     &code,
                     player_id,
+                    connection_generation,
                     message,
                 ).await;
 
@@ -115,15 +122,11 @@ async fn handle_room_socket(
                     break;
                 };
 
-                if !message.is_for_player(player_id) {
+                if !message.is_for_connection(player_id, connection_generation) {
                     continue;
                 }
 
-                let should_close = matches!(
-                    &message,
-                    ServerMessage::PlayerKicked { player_id: kicked_id, .. }
-                        if *kicked_id == player_id
-                );
+                let should_close = message.closes_connection(player_id, connection_generation);
 
                 if !send_server_message(&mut sender, &message).await {
                     break;
@@ -146,7 +149,7 @@ async fn handle_room_socket(
         }
     }
 
-    let _ = service::leave_room(&rooms, &code, player_id);
+    let _ = service::leave_room(&rooms, &code, player_id, connection_generation);
 }
 
 async fn handle_incoming_message(
@@ -154,6 +157,7 @@ async fn handle_incoming_message(
     rooms: &RoomStore,
     code: &str,
     player_id: u64,
+    connection_generation: u64,
     message: Message,
 ) -> bool {
     match message {
@@ -169,15 +173,27 @@ async fn handle_incoming_message(
 
             let result = match client_message {
                 ClientMessage::Start => {
-                    service::start_room(rooms, code, player_id)
+                    service::start_room(rooms, code, player_id, connection_generation)
                 }
 
                 ClientMessage::Kick { player_id: target_id } => {
-                    service::kick_player(rooms, code, player_id, target_id)
+                    service::kick_player(
+                        rooms,
+                        code,
+                        player_id,
+                        connection_generation,
+                        target_id,
+                    )
                 }
 
                 ClientMessage::Promote { player_id: target_id } => {
-                    service::promote_host(rooms, code, player_id, target_id)
+                    service::promote_host(
+                        rooms,
+                        code,
+                        player_id,
+                        connection_generation,
+                        target_id,
+                    )
                 }
 
                 ClientMessage::Ping => {
@@ -186,7 +202,13 @@ async fn handle_incoming_message(
 
                 other => {
                     if let Some(event) = other.into_input_event() {
-                        service::broadcast_input(rooms, code, player_id, event)
+                        service::broadcast_input(
+                            rooms,
+                            code,
+                            player_id,
+                            connection_generation,
+                            event,
+                        )
                     } else {
                         Ok(())
                     }

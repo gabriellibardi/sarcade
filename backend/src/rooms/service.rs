@@ -29,7 +29,9 @@ pub struct CreatedRoom {
 
 pub struct JoinRoom {
     pub player_id: u64,
+    pub connection_generation: u64,
     pub is_host: bool,
+    pub player_token: String,
     pub room: RoomSnapshot,
     pub rx: broadcast::Receiver<ServerMessage>,
 }
@@ -85,14 +87,19 @@ pub fn join_room(
     code: &str,
     nickname: String,
     host_token: Option<String>,
+    player_token: Option<String>,
 ) -> Result<JoinRoom, RoomError> {
-    let nickname = validate_nickname(&nickname)?;
-
     let mut rooms = lock_rooms(store)?;
 
     cleanup_empty_expired_rooms(&mut rooms);
 
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
+
+    if let Some(player_token) = player_token {
+        return reconnect_player(room, &player_token);
+    }
+
+    let nickname = validate_nickname(&nickname)?;
 
     if room.status == RoomStatus::Running {
         return Err(RoomError::AlreadyRunning);
@@ -129,7 +136,13 @@ pub fn join_room(
         id: player_id,
         nickname,
         is_host,
+        connected: true,
+        reconnect_token: random_token(32),
+        connection_generation: 1,
     };
+
+    let player_token = player.reconnect_token.clone();
+    let connection_generation = player.connection_generation;
 
     room.players.push(player);
 
@@ -142,7 +155,54 @@ pub fn join_room(
 
     Ok(JoinRoom {
         player_id,
+        connection_generation,
         is_host,
+        player_token,
+        room: snapshot,
+        rx,
+    })
+}
+
+fn reconnect_player(room: &mut Room, player_token: &str) -> Result<JoinRoom, RoomError> {
+    let Some(player) = room
+        .players
+        .iter_mut()
+        .find(|player| player.reconnect_token == player_token)
+    else {
+        return Err(RoomError::InvalidPlayerToken);
+    };
+
+    let player_id = player.id;
+    let is_host = player.is_host;
+    let was_connected = player.connected;
+    let previous_generation = player.connection_generation;
+    player.connection_generation = player
+        .connection_generation
+        .checked_add(1)
+        .ok_or(RoomError::Internal)?;
+    player.connected = true;
+    let connection_generation = player.connection_generation;
+    let player_token = player.reconnect_token.clone();
+
+    let rx = room.tx.subscribe();
+    let snapshot = room_snapshot(room);
+
+    if was_connected {
+        let _ = room.tx.send(ServerMessage::ConnectionReplaced {
+            player_id,
+            connection_generation: previous_generation,
+        });
+    }
+
+    let _ = room.tx.send(ServerMessage::RoomState {
+        room: snapshot.clone(),
+    });
+
+    Ok(JoinRoom {
+        player_id,
+        connection_generation,
+        is_host,
+        player_token,
         room: snapshot,
         rx,
     })
@@ -166,6 +226,7 @@ pub fn leave_room(
     store: &RoomStore,
     code: &str,
     player_id: u64,
+    connection_generation: u64,
 ) -> Result<(), RoomError> {
     let mut rooms = lock_rooms(store)?;
 
@@ -173,15 +234,27 @@ pub fn leave_room(
         return Ok(());
     };
 
-    let before = room.players.len();
+    let Some(player) = room.players.iter_mut().find(|player| player.id == player_id) else {
+        return Ok(());
+    };
 
-    room.players.retain(|player| player.id != player_id);
-
-    let removed = before != room.players.len();
-
-    if !removed {
+    if player.connection_generation != connection_generation {
         return Ok(());
     }
+
+    if room.status == RoomStatus::Running {
+        player.connected = false;
+        let _ = room.runtime.send(RuntimeCommand::PlayerLeft { player_id });
+
+        let snapshot = room_snapshot(room);
+        let _ = room.tx.send(ServerMessage::PlayerLeft {
+            player_id,
+            room: snapshot,
+        });
+        return Ok(());
+    }
+
+    room.players.retain(|player| player.id != player_id);
 
     if room.host_player_id == Some(player_id) {
         room.host_player_id = None;
@@ -195,10 +268,6 @@ pub fn leave_room(
         let _ = room.runtime.send(RuntimeCommand::Stop);
         rooms.remove(code);
         return Ok(());
-    }
-
-    if room.status == RoomStatus::Running {
-        let _ = room.runtime.send(RuntimeCommand::PlayerLeft { player_id });
     }
 
     let snapshot = room_snapshot(room);
@@ -215,10 +284,12 @@ pub fn start_room(
     store: &RoomStore,
     code: &str,
     player_id: u64,
+    connection_generation: u64,
 ) -> Result<(), RoomError> {
     let mut rooms = lock_rooms(store)?;
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
 
+    ensure_current_connection(room, player_id, connection_generation)?;
     ensure_host(room, player_id)?;
 
     if room.status == RoomStatus::Running {
@@ -258,12 +329,18 @@ pub fn kick_player(
     store: &RoomStore,
     code: &str,
     requester_id: u64,
+    connection_generation: u64,
     target_id: u64,
 ) -> Result<(), RoomError> {
     let mut rooms = lock_rooms(store)?;
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
 
+    ensure_current_connection(room, requester_id, connection_generation)?;
     ensure_host(room, requester_id)?;
+
+    if room.status == RoomStatus::Running {
+        return Err(RoomError::AlreadyRunning);
+    }
 
     if requester_id == target_id {
         return Err(RoomError::CannotKickSelf);
@@ -303,11 +380,13 @@ pub fn promote_host(
     store: &RoomStore,
     code: &str,
     requester_id: u64,
+    connection_generation: u64,
     target_id: u64,
 ) -> Result<(), RoomError> {
     let mut rooms = lock_rooms(store)?;
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
 
+    ensure_current_connection(room, requester_id, connection_generation)?;
     ensure_host(room, requester_id)?;
 
     if !room.players.iter().any(|player| player.id == target_id) {
@@ -338,14 +417,13 @@ pub fn broadcast_input(
     store: &RoomStore,
     code: &str,
     player_id: u64,
+    connection_generation: u64,
     event: InputEvent,
 ) -> Result<(), RoomError> {
     let rooms = lock_rooms(store)?;
     let room = rooms.get(code).ok_or(RoomError::NotFound)?;
 
-    if !room.players.iter().any(|player| player.id == player_id) {
-        return Err(RoomError::PlayerNotFound);
-    }
+    ensure_current_connection(room, player_id, connection_generation)?;
 
     if room.status != RoomStatus::Running {
         return Err(RoomError::NotRunning);
@@ -409,6 +487,24 @@ fn ensure_host(room: &Room, player_id: u64) -> Result<(), RoomError> {
     }
 }
 
+fn ensure_current_connection(
+    room: &Room,
+    player_id: u64,
+    connection_generation: u64,
+) -> Result<(), RoomError> {
+    let player = room
+        .players
+        .iter()
+        .find(|player| player.id == player_id)
+        .ok_or(RoomError::PlayerNotFound)?;
+
+    if player.connected && player.connection_generation == connection_generation {
+        Ok(())
+    } else {
+        Err(RoomError::ConnectionReplaced)
+    }
+}
+
 fn room_snapshot(room: &Room) -> RoomSnapshot {
     RoomSnapshot {
         code: room.code.clone(),
@@ -460,8 +556,8 @@ fn random_token(len: usize) -> String {
 mod tests {
     use backend::game_runtime::RuntimeSpec;
 
-    use super::{create_room, validate_nickname};
-    use crate::rooms::{RoomError, new_store};
+    use super::{broadcast_input, create_room, join_room, leave_room, validate_nickname};
+    use crate::rooms::{InputEvent, RoomError, RoomStatus, new_store};
 
     #[test]
     fn nickname_is_trimmed_and_limited_on_the_server() {
@@ -480,7 +576,103 @@ mod tests {
     #[tokio::test]
     async fn created_room_keeps_the_selected_revision_and_source() {
         let store = new_store();
-        let spec = RuntimeSpec::new(
+        let spec = runtime_spec();
+        let expected_digest = *spec.source_sha256();
+
+        let created = create_room(&store, spec).unwrap();
+        let rooms = store.lock().unwrap();
+        let room = rooms.get(&created.code).unwrap();
+
+        assert_eq!(room.spec.revision_id(), 17);
+        assert_eq!(room.spec.runtime_build_id(), "sgleam-0.7");
+        assert_eq!(room.spec.source_code(), "pub fn main() { 42 }");
+        assert_eq!(room.spec.source_sha256(), &expected_digest);
+    }
+
+    #[tokio::test]
+    async fn running_room_keeps_the_seat_and_reconnects_with_its_token() {
+        let store = new_store();
+        let created = create_room(&store, runtime_spec()).unwrap();
+        let joined = join_room(
+            &store,
+            &created.code,
+            "Jogadora".into(),
+            Some(created.host_token),
+            None,
+        )
+        .unwrap();
+
+        {
+            let mut rooms = store.lock().unwrap();
+            rooms.get_mut(&created.code).unwrap().status = RoomStatus::Running;
+        }
+
+        leave_room(
+            &store,
+            &created.code,
+            joined.player_id,
+            joined.connection_generation,
+        )
+        .unwrap();
+
+        {
+            let rooms = store.lock().unwrap();
+            let player = &rooms.get(&created.code).unwrap().players[0];
+            assert_eq!(player.id, joined.player_id);
+            assert!(!player.connected);
+        }
+
+        let reconnected = join_room(
+            &store,
+            &created.code,
+            String::new(),
+            None,
+            Some(joined.player_token.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(reconnected.player_id, joined.player_id);
+        assert_eq!(reconnected.player_token, joined.player_token);
+        assert!(reconnected.connection_generation > joined.connection_generation);
+
+        let old_connection = broadcast_input(
+            &store,
+            &created.code,
+            joined.player_id,
+            joined.connection_generation,
+            InputEvent::KeyDown { key: "a".into() },
+        );
+        assert!(matches!(old_connection, Err(RoomError::ConnectionReplaced)));
+    }
+
+    #[tokio::test]
+    async fn running_room_rejects_a_new_player_without_a_valid_token() {
+        let store = new_store();
+        let created = create_room(&store, runtime_spec()).unwrap();
+
+        {
+            let mut rooms = store.lock().unwrap();
+            rooms.get_mut(&created.code).unwrap().status = RoomStatus::Running;
+        }
+
+        assert!(matches!(
+            join_room(&store, &created.code, "Nova".into(), None, None),
+            Err(RoomError::AlreadyRunning)
+        ));
+        assert!(matches!(
+            join_room(
+                &store,
+                &created.code,
+                "Nova".into(),
+                None,
+                Some("token-inexistente".into()),
+            ),
+            Err(RoomError::InvalidPlayerToken)
+        ));
+    }
+
+    fn runtime_spec() -> RuntimeSpec {
+        RuntimeSpec::new(
             9,
             17,
             "sgleam-0.7".into(),
@@ -493,16 +685,6 @@ mod tests {
             "pub fn main() { 42 }".into(),
             2,
             6,
-        );
-        let expected_digest = *spec.source_sha256();
-
-        let created = create_room(&store, spec).unwrap();
-        let rooms = store.lock().unwrap();
-        let room = rooms.get(&created.code).unwrap();
-
-        assert_eq!(room.spec.revision_id(), 17);
-        assert_eq!(room.spec.runtime_build_id(), "sgleam-0.7");
-        assert_eq!(room.spec.source_code(), "pub fn main() { 42 }");
-        assert_eq!(room.spec.source_sha256(), &expected_digest);
+        )
     }
 }

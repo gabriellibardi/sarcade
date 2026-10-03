@@ -56,15 +56,12 @@ where
 }
 
 fn update_players(players: &mut Vec<RuntimePlayer>, command: &RuntimeCommand) {
-    match command {
-        RuntimeCommand::Start {
-            players: initial_players,
-            ..
-        } => players.clone_from(initial_players),
-        RuntimeCommand::PlayerLeft { player_id } => {
-            players.retain(|player| player.id != *player_id);
-        }
-        _ => {}
+    if let RuntimeCommand::Start {
+        players: initial_players,
+        ..
+    } = command
+    {
+        players.clone_from(initial_players);
     }
 }
 
@@ -81,7 +78,7 @@ fn record(history: &mut Vec<String>, command: &RuntimeCommand) {
         RuntimeCommand::Input { player_id, event } => {
             format!("Jogador #{player_id}: {}", describe_input(event))
         }
-        RuntimeCommand::PlayerLeft { player_id } => format!("Jogador #{player_id} saiu"),
+        RuntimeCommand::PlayerLeft { player_id } => format!("Jogador #{player_id} desconectou"),
         RuntimeCommand::Tick => "Tick".to_string(),
         RuntimeCommand::Stop => "Partida encerrada".to_string(),
     };
@@ -220,8 +217,13 @@ mod tests {
         assert!(
             String::from_utf8(after_leave.svg)
                 .unwrap()
-                .contains("Jogador #2 saiu")
+                .contains("Jogador #2 desconectou")
         );
+        let disconnected_player_frame = read_player_frame(&mut server_reader)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(disconnected_player_frame.player_id, 2);
 
         let stop = RuntimeMessage::new(RuntimeCommand::Stop);
         write_framed(&mut server_writer, &serde_json::to_vec(&stop).unwrap())
@@ -237,6 +239,11 @@ mod tests {
                 .unwrap()
                 .contains("Partida encerrada")
         );
+        let disconnected_player_final_frame = read_player_frame(&mut server_reader)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(disconnected_player_final_frame.player_id, 2);
         assert!(
             read_player_frame(&mut server_reader)
                 .await

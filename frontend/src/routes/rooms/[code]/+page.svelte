@@ -17,6 +17,7 @@
 
 	let nickname = '';
 	let hostToken = '';
+	let playerToken = '';
 
 	let myPlayerId: number | null = null;
 	let amHost = false;
@@ -34,6 +35,7 @@
 	const keysWithBrowserAction = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);
 
 	const code = page.params.code ?? '';
+	const participationStorageKey = `sarcade:room:${code}:participation`;
 
 	$: isConnected = connectionState === WS_OPEN;
 	$: isConnecting = connectionState === WS_CONNECTING;
@@ -50,6 +52,9 @@
 
 		if (hostToken) {
 			params.set('host_token', hostToken);
+		}
+		if (playerToken) {
+			params.set('player_token', playerToken);
 		}
 
 		return `${protocol}//${window.location.host}/api/rooms/${code}/ws?${params.toString()}`;
@@ -117,7 +122,15 @@
 			case 'joined':
 				myPlayerId = data.player_id;
 				amHost = data.is_host;
+				playerToken = data.player_token;
 				room = data.room;
+				saveParticipation();
+				break;
+
+			case 'connection_replaced':
+				clearParticipation();
+				closeSocket();
+				error = 'Esta conexão foi substituída por uma reconexão.';
 				break;
 
 			case 'room_state':
@@ -144,6 +157,7 @@
 				room = data.room;
 
 				if (data.player_id === myPlayerId) {
+					clearParticipation();
 					closeSocket();
 					error = 'Você foi removido da sala pelo host.';
 					return;
@@ -166,6 +180,9 @@
 				break;
 
 			case 'error':
+				if (myPlayerId === null && playerToken) {
+					clearParticipation();
+				}
 				error = data.message;
 				break;
 
@@ -339,10 +356,47 @@
 		pressedKeys.clear();
 	}
 
+	function saveParticipation() {
+		if (!playerToken) return;
+
+		sessionStorage.setItem(participationStorageKey, JSON.stringify({ playerToken, nickname }));
+	}
+
+	function restoreParticipation() {
+		const saved = sessionStorage.getItem(participationStorageKey);
+		if (!saved) return;
+
+		try {
+			const parsed: unknown = JSON.parse(saved);
+			if (
+				typeof parsed === 'object' &&
+				parsed !== null &&
+				'playerToken' in parsed &&
+				typeof parsed.playerToken === 'string' &&
+				'nickname' in parsed &&
+				typeof parsed.nickname === 'string'
+			) {
+				playerToken = parsed.playerToken;
+				if (!nickname) nickname = parsed.nickname;
+				return;
+			}
+		} catch {
+			// Um valor local inválido não deve impedir uma nova entrada na sala.
+		}
+
+		sessionStorage.removeItem(participationStorageKey);
+	}
+
+	function clearParticipation() {
+		playerToken = '';
+		sessionStorage.removeItem(participationStorageKey);
+	}
+
 	async function leaveRoom() {
 		const gameId = room?.game_id;
 
 		closeSocket();
+		clearParticipation();
 		nickname = '';
 		hostToken = '';
 		message = '';
@@ -379,6 +433,7 @@
 
 		nickname = params.get('nickname') ?? '';
 		hostToken = params.get('host_token') ?? '';
+		restoreParticipation();
 
 		if (nickname) {
 			connect();
