@@ -20,6 +20,7 @@ use crate::rooms::{
 };
 
 const EMPTY_ROOM_TTL: Duration = Duration::from_secs(10 * 60);
+const DISCONNECTED_ROOM_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_NICKNAME_LENGTH: usize = 30;
 
 pub struct CreatedRoom {
@@ -72,6 +73,7 @@ fn create_room_with_runtime(
         runtime,
         created_at,
         started_at: None,
+        all_disconnected_at: None,
     };
 
     rooms.insert(code.clone(), room);
@@ -197,6 +199,7 @@ fn reconnect_player(room: &mut Room, player_token: &str) -> Result<JoinRoom, Roo
         .checked_add(1)
         .ok_or(RoomError::Internal)?;
     player.connected = true;
+    room.all_disconnected_at = None;
     let connection_generation = player.connection_generation;
     let player_token = player.reconnect_token.clone();
 
@@ -262,11 +265,29 @@ pub fn leave_room(
         player.connected = false;
         let _ = room.runtime.send(RuntimeCommand::PlayerLeft { player_id });
 
+        let disconnected_at = room
+            .players
+            .iter()
+            .all(|player| !player.connected)
+            .then(Instant::now);
+        if let Some(disconnected_at) = disconnected_at {
+            room.all_disconnected_at = Some(disconnected_at);
+        }
+
         let snapshot = room_snapshot(room);
         let _ = room.tx.send(ServerMessage::PlayerLeft {
             player_id,
             room: snapshot,
         });
+
+        if let Some(disconnected_at) = disconnected_at {
+            drop(rooms);
+            schedule_disconnected_room_expiration(
+                store.clone(),
+                code.to_string(),
+                disconnected_at,
+            );
+        }
         return Ok(());
     }
 
@@ -654,6 +675,50 @@ async fn expire_empty_room_after(
     }
 }
 
+fn schedule_disconnected_room_expiration(
+    store: RoomStore,
+    code: String,
+    disconnected_at: Instant,
+) {
+    tokio::spawn(expire_disconnected_room_after(
+        store,
+        code,
+        disconnected_at,
+        DISCONNECTED_ROOM_TTL,
+    ));
+}
+
+async fn expire_disconnected_room_after(
+    store: RoomStore,
+    code: String,
+    disconnected_at: Instant,
+    ttl: Duration,
+) {
+    tokio::time::sleep(ttl).await;
+
+    let expired = {
+        let Ok(mut rooms) = store.lock() else {
+            tracing::error!(room = %code, "mutex de salas envenenado durante expiração");
+            return;
+        };
+        let should_remove = rooms.get(&code).is_some_and(|room| {
+            room.status == RoomStatus::Running
+                && room.all_disconnected_at == Some(disconnected_at)
+                && room.players.iter().all(|player| !player.connected)
+        });
+
+        should_remove.then(|| rooms.remove(&code)).flatten()
+    };
+
+    if let Some(room) = expired {
+        let _ = room.runtime.send(RuntimeCommand::Stop);
+        tracing::info!(
+            room = %code,
+            "partida sem conexões expirou e o runtime foi encerrado"
+        );
+    }
+}
+
 fn generate_unique_room_code(rooms: &HashMap<String, Room>) -> String {
     loop {
         let code = random_token(6).to_uppercase();
@@ -679,8 +744,8 @@ mod tests {
     use backend::game_runtime::{RuntimeHandle, RuntimeOutput, RuntimeSpec};
 
     use super::{
-        CreatedRoom, broadcast_input, create_room_with_runtime, expire_empty_room_after,
-        join_room, leave_room, start_room, validate_nickname,
+        CreatedRoom, broadcast_input, create_room_with_runtime, expire_disconnected_room_after,
+        expire_empty_room_after, join_room, leave_room, start_room, validate_nickname,
     };
     use crate::rooms::{InputEvent, RoomError, RoomStatus, ServerMessage, new_store};
 
@@ -740,12 +805,14 @@ mod tests {
         )
         .unwrap();
 
-        {
+        let disconnected_at = {
             let rooms = store.lock().unwrap();
-            let player = &rooms.get(&created.code).unwrap().players[0];
+            let room = rooms.get(&created.code).unwrap();
+            let player = &room.players[0];
             assert_eq!(player.id, joined.player_id);
             assert!(!player.connected);
-        }
+            room.all_disconnected_at.unwrap()
+        };
 
         let reconnected = join_room(
             &store,
@@ -759,6 +826,15 @@ mod tests {
         assert_eq!(reconnected.player_id, joined.player_id);
         assert_eq!(reconnected.player_token, joined.player_token);
         assert!(reconnected.connection_generation > joined.connection_generation);
+
+        expire_disconnected_room_after(
+            store.clone(),
+            created.code.clone(),
+            disconnected_at,
+            Duration::ZERO,
+        )
+        .await;
+        assert!(store.lock().unwrap().contains_key(&created.code));
 
         let old_connection = broadcast_input(
             &store,
@@ -919,6 +995,49 @@ mod tests {
             store.clone(),
             created.code.clone(),
             created_at,
+            Duration::ZERO,
+        )
+        .await;
+
+        assert!(!store.lock().unwrap().contains_key(&created.code));
+    }
+
+    #[tokio::test]
+    async fn disconnected_running_room_expires_after_the_reconnection_window() {
+        let store = new_store();
+        let created = create_test_room(&store, runtime_spec());
+        let joined = join_room(
+            &store,
+            &created.code,
+            "Jogadora".into(),
+            Some(created.host_token),
+            None,
+        )
+        .unwrap();
+        {
+            let mut rooms = store.lock().unwrap();
+            rooms.get_mut(&created.code).unwrap().status = RoomStatus::Running;
+        }
+
+        leave_room(
+            &store,
+            &created.code,
+            joined.player_id,
+            joined.connection_generation,
+        )
+        .unwrap();
+        let disconnected_at = store
+            .lock()
+            .unwrap()
+            .get(&created.code)
+            .unwrap()
+            .all_disconnected_at
+            .unwrap();
+
+        expire_disconnected_room_after(
+            store.clone(),
+            created.code.clone(),
+            disconnected_at,
             Duration::ZERO,
         )
         .await;

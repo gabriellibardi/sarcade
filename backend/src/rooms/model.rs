@@ -22,6 +22,7 @@ pub struct Room {
 
     pub created_at: Instant,
     pub started_at: Option<Instant>,
+    pub all_disconnected_at: Option<Instant>,
 }
 
 #[derive(Clone, Serialize, PartialEq)]

@@ -90,6 +90,10 @@ sem incluir código ou tokens, o intervalo entre `Start` e o primeiro frame.
 Uma sala que continua vazia por dez minutos é removida por uma tarefa própria,
 mesmo que não chegue outra requisição para disparar limpeza oportunista. A
 remoção envia `stop`, fecha a fila e libera processo e diretório temporário.
+Depois do `Start`, os assentos continuam reservados durante quedas; quando o
+último participante desconecta, começa uma janela de reconexão de dez minutos.
+Qualquer reconexão cancela aquela expiração. Se ninguém voltar, a partida e o
+runtime são encerrados.
 
 ## Estado alvo com Sinteract
 
