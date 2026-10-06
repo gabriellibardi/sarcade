@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha256};
+use std::fmt::Write;
 
 /// Immutable description of the approved game revision selected for a room.
 ///
@@ -101,6 +102,14 @@ impl RuntimeSpec {
         &self.source_sha256
     }
 
+    pub fn source_sha256_hex(&self) -> String {
+        let mut hex = String::with_capacity(self.source_sha256.len() * 2);
+        for byte in self.source_sha256 {
+            write!(&mut hex, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+        hex
+    }
+
     pub fn min_players(&self) -> i64 {
         self.min_players
     }
@@ -122,6 +131,7 @@ mod tests {
 
         assert_eq!(first.source_sha256(), same.source_sha256());
         assert_ne!(first.source_sha256(), different.source_sha256());
+        assert_eq!(first.source_sha256_hex().len(), 64);
     }
 
     fn spec(source: &str) -> RuntimeSpec {

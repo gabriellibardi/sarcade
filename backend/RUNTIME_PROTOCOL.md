@@ -23,6 +23,18 @@ No futuro, esse ponto de criação será substituído por algo equivalente a:
 sgleam --server <caminho-do-jogo>
 ```
 
+Antes de iniciar o subprocesso, o backend materializa exatamente o código da
+revisão fixada no `RuntimeSpec`. Cada sessão recebe um diretório aleatório
+próprio, com permissão `0700` em Unix, e um arquivo `game.<extensão>` com
+permissão `0600`. A extensão é validada como identificador ASCII e não pode
+escolher um caminho. O SHA-256 do arquivo é conferido contra o digest da
+revisão aprovada. O diretório é removido quando a sessão termina, inclusive em
+falhas de inicialização.
+
+O runtime reserva ainda não lê esse arquivo: a materialização já valida a
+fronteira que será consumida pelo launcher do Sgleam, enquanto o subprocesso
+temporário continua apenas mostrando o histórico de eventos.
+
 Uma tarefa Tokio possui o processo e escreve os comandos. Uma tarefa auxiliar
 mantém a leitura contínua de `stdout`; não há uma thread dedicada por partida.
 `stdin` e `stdout` são pipes anônimos criados com `Stdio::piped()`; mensagens de

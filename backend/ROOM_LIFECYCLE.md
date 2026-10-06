@@ -27,6 +27,11 @@ O ator do runtime reserva também recebe o `RuntimeSpec` na criação da sala,
 mas o subprocesso temporário ainda nasce no `Start`. Isso será substituído
 pelo handshake do Sinteract descrito em "Estado alvo".
 
+Ao lançar um runtime, o backend cria um diretório privado e exclusivo,
+materializa `game.<extensão>` e confere seu SHA-256 contra o `RuntimeSpec`.
+Nenhum nome ou caminho fornecido pelo autor entra diretamente no comando. O
+diretório permanece vivo pela duração do subprocesso e é removido ao final.
+
 ### Lobby, assentos e reconexão
 
 Enquanto a sala está em `waiting`, uma conexão sem `player_token` cria um

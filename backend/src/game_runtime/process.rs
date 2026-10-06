@@ -7,7 +7,7 @@ use tokio::{
 
 use super::{
     protocol::{self, RuntimeCommand, RuntimeMessage},
-    stub, RuntimeSpec,
+    stub, MaterializedSource, RuntimeSpec,
 };
 
 const COMMAND_QUEUE_CAPACITY: usize = 128;
@@ -87,15 +87,26 @@ async fn run_child(
     mut commands: mpsc::Receiver<RuntimeMessage>,
     outputs: &mpsc::Sender<RuntimeOutput>,
 ) -> io::Result<()> {
+    let materialized = MaterializedSource::create(spec, &std::env::temp_dir())?;
     let executable = std::env::current_exe()?;
     let mut child = Command::new(executable)
         .arg("runtime-stub")
         .arg(format!("game-{}", spec.game_id()))
+        .current_dir(materialized.directory())
+        .env_clear()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()?;
+
+    tracing::info!(
+        game_id = spec.game_id(),
+        revision_id = spec.revision_id(),
+        runtime_build = spec.runtime_build_id(),
+        source_sha256 = spec.source_sha256_hex(),
+        "runtime reserva iniciado com fonte materializada"
+    );
 
     let mut stdin = child
         .stdin
