@@ -19,6 +19,20 @@
 		onKick: (playerId: number) => void;
 		onPromote: (playerId: number) => void;
 	} = $props();
+
+	const statusLabel = {
+		preparing: 'Preparando',
+		waiting: 'Aguardando',
+		running: 'Em partida',
+		failed: 'Falhou'
+	} as const;
+
+	const statusClass = {
+		preparing: 'bg-sky-950 text-sky-300',
+		waiting: 'bg-amber-950 text-amber-300',
+		running: 'bg-emerald-950 text-emerald-300',
+		failed: 'bg-red-950 text-red-300'
+	} as const;
 </script>
 
 <section class="surface-card overflow-hidden">
@@ -29,10 +43,8 @@
 			<p class="text-xs font-bold tracking-widest text-slate-400 uppercase">Lobby</p>
 			<h2 class="display-title mt-2 text-xl text-slate-950">Participantes</h2>
 		</div>
-		<span
-			class={`status-chip px-3 py-1 text-xs font-bold ${room.status === 'waiting' ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}
-		>
-			{room.status === 'waiting' ? 'Aguardando' : 'Em partida'}
+		<span class={`status-chip px-3 py-1 text-xs font-bold ${statusClass[room.status]}`}>
+			{statusLabel[room.status]}
 		</span>
 	</div>
 
@@ -112,6 +124,10 @@
 			</button>
 			{#if !amHost}
 				<p class="mt-2 text-xs leading-5 text-slate-400">Somente o host pode iniciar.</p>
+			{:else if room.status === 'preparing'}
+				<p class="mt-2 text-xs leading-5 text-slate-400">Preparando o runtime da sala.</p>
+			{:else if room.status === 'failed'}
+				<p class="mt-2 text-xs leading-5 text-red-300">O runtime da sala foi encerrado.</p>
 			{:else if room.players.length < room.min_players}
 				<p class="mt-2 text-xs leading-5 text-slate-400">Aguardando mais participantes.</p>
 			{/if}

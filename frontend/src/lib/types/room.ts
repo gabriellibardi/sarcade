@@ -5,7 +5,7 @@ export type Player = {
 	connected: boolean;
 };
 
-export type RoomStatus = 'waiting' | 'running';
+export type RoomStatus = 'preparing' | 'waiting' | 'running' | 'failed';
 
 export type RoomSnapshot = {
 	code: string;

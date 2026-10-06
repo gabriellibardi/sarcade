@@ -23,9 +23,17 @@ Ao criar uma sala, o backend seleciona a revisão aprovada mais recente e o
 Uma aprovação posterior no SQLite não altera uma sala existente. O código e
 o token de cada participante não fazem parte de `RoomSnapshot` nem de logs.
 
-O ator do runtime reserva também recebe o `RuntimeSpec` na criação da sala,
-mas o subprocesso temporário ainda nasce no `Start`. Isso será substituído
-pelo handshake do Sinteract descrito em "Estado alvo".
+O ator do runtime reserva recebe o `RuntimeSpec` e inicia o subprocesso na
+criação da sala. A sala começa em `Preparing` e passa a `Waiting` quando o
+processo e os pipes estão disponíveis. O `Start` envia somente o primeiro
+comando ao processo que já existe; não relança nem rematerializa a fonte. No
+Sinteract, a prontidão local será substituída pelo handshake descrito em
+"Estado alvo".
+
+Builds marcados como `unavailable` e versões explícitas de protocolo
+incompatíveis levam a sala a `Failed` antes do `Start`. Builds de
+desenvolvimento antigos, cuja versão é `NULL`, continuam aceitos durante a
+migração.
 
 Ao lançar um runtime, o backend cria um diretório privado e exclusivo,
 materializa `game.<extensão>` e confere seu SHA-256 contra o `RuntimeSpec`.
@@ -67,6 +75,15 @@ segundo keep-alive no protocolo JSON.
 Mensagens binárias já são separadas do parser JSON, mas recebem um erro
 controlado até o `ServerCore` ser integrado. Portanto, a multiplexação está
 negociada, mas o caminho binário ainda não executa entradas do Sinteract.
+
+Cada conexão aceita no máximo 120 eventos textuais de entrada por segundo.
+Ultrapassar esse limite envia um erro e encerra a conexão; mensagens
+administrativas não consomem essa cota. O caminho binário terá seu próprio
+controle quando o `ServerCore` for integrado.
+
+Uma sala que continua vazia por dez minutos é removida por uma tarefa própria,
+mesmo que não chegue outra requisição para disparar limpeza oportunista. A
+remoção envia `stop`, fecha a fila e libera processo e diretório temporário.
 
 ## Estado alvo com Sinteract
 

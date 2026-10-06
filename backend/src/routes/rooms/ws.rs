@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::{
@@ -21,6 +21,7 @@ use crate::rooms::{
 
 const ROOM_WS_SUBPROTOCOL: &str = "sinteract.v1";
 const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_INPUT_EVENTS_PER_SECOND: usize = 120;
 
 #[derive(Deserialize)]
 pub struct JoinQuery {
@@ -112,6 +113,7 @@ async fn handle_room_socket(
     let (mut sender, mut receiver) = socket.split();
 
     let mut keepalive = tokio::time::interval(Duration::from_secs(25));
+    let mut input_limiter = InputRateLimiter::new(Instant::now());
 
     loop {
         tokio::select! {
@@ -126,6 +128,7 @@ async fn handle_room_socket(
                     &code,
                     player_id,
                     connection_generation,
+                    &mut input_limiter,
                     message,
                 ).await;
 
@@ -175,6 +178,7 @@ async fn handle_incoming_message(
     code: &str,
     player_id: u64,
     connection_generation: u64,
+    input_limiter: &mut InputRateLimiter,
     message: Message,
 ) -> bool {
     match message {
@@ -219,6 +223,14 @@ async fn handle_incoming_message(
 
                 other => {
                     if let Some(event) = other.into_input_event() {
+                        if !input_limiter.allow(Instant::now()) {
+                            let _ = send_error(
+                                sender,
+                                "Limite de eventos de entrada excedido",
+                            )
+                            .await;
+                            return false;
+                        }
                         service::broadcast_input(
                             rooms,
                             code,
@@ -256,6 +268,34 @@ async fn handle_incoming_message(
     }
 }
 
+struct InputRateLimiter {
+    window_started: Instant,
+    accepted: usize,
+}
+
+impl InputRateLimiter {
+    fn new(now: Instant) -> Self {
+        Self {
+            window_started: now,
+            accepted: 0,
+        }
+    }
+
+    fn allow(&mut self, now: Instant) -> bool {
+        if now.duration_since(self.window_started) >= Duration::from_secs(1) {
+            self.window_started = now;
+            self.accepted = 0;
+        }
+
+        if self.accepted >= MAX_INPUT_EVENTS_PER_SECOND {
+            return false;
+        }
+
+        self.accepted += 1;
+        true
+    }
+}
+
 async fn send_error(
     sender: &mut SplitSink<WebSocket, Message>,
     message: &str,
@@ -285,11 +325,28 @@ fn to_ws_text(message: &ServerMessage) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_CLIENT_MESSAGE_BYTES, ROOM_WS_SUBPROTOCOL};
+    use std::time::{Duration, Instant};
+
+    use super::{
+        InputRateLimiter, MAX_CLIENT_MESSAGE_BYTES, MAX_INPUT_EVENTS_PER_SECOND,
+        ROOM_WS_SUBPROTOCOL,
+    };
 
     #[test]
     fn room_socket_uses_the_sinteract_protocol_and_view_size_limit() {
         assert_eq!(ROOM_WS_SUBPROTOCOL, "sinteract.v1");
         assert_eq!(MAX_CLIENT_MESSAGE_BYTES, 64 * 1024);
+    }
+
+    #[test]
+    fn input_rate_limit_closes_a_burst_and_recovers_in_the_next_window() {
+        let now = Instant::now();
+        let mut limiter = InputRateLimiter::new(now);
+
+        for _ in 0..MAX_INPUT_EVENTS_PER_SECOND {
+            assert!(limiter.allow(now));
+        }
+        assert!(!limiter.allow(now));
+        assert!(limiter.allow(now + Duration::from_secs(1)));
     }
 }

@@ -1,5 +1,5 @@
 use sha2::{Digest, Sha256};
-use std::fmt::Write;
+use std::fmt::{self, Write};
 
 /// Immutable description of the approved game revision selected for a room.
 ///
@@ -117,7 +117,47 @@ impl RuntimeSpec {
     pub fn max_players(&self) -> i64 {
         self.max_players
     }
+
+    pub fn validate_protocol(
+        &self,
+        expected_protocol: u32,
+    ) -> Result<(), RuntimeSpecError> {
+        if self.runtime_status == "unavailable" {
+            return Err(RuntimeSpecError::Unavailable);
+        }
+
+        if let Some(actual) = self.protocol_version
+            && actual != i64::from(expected_protocol)
+        {
+            return Err(RuntimeSpecError::Protocol {
+                expected: expected_protocol,
+                actual,
+            });
+        }
+
+        Ok(())
+    }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeSpecError {
+    Unavailable,
+    Protocol { expected: u32, actual: i64 },
+}
+
+impl fmt::Display for RuntimeSpecError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable => formatter.write_str("runtime build is unavailable"),
+            Self::Protocol { expected, actual } => write!(
+                formatter,
+                "runtime protocol {actual} is incompatible with expected protocol {expected}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RuntimeSpecError {}
 
 #[cfg(test)]
 mod tests {
@@ -132,6 +172,28 @@ mod tests {
         assert_eq!(first.source_sha256(), same.source_sha256());
         assert_ne!(first.source_sha256(), different.source_sha256());
         assert_eq!(first.source_sha256_hex().len(), 64);
+    }
+
+    #[test]
+    fn rejects_an_unavailable_or_incompatible_runtime_before_start() {
+        let mut unavailable = spec("pub fn main() { 1 }");
+        unavailable.runtime_status = "unavailable".into();
+        assert!(matches!(
+            unavailable.validate_protocol(2),
+            Err(super::RuntimeSpecError::Unavailable)
+        ));
+
+        let mut incompatible = spec("pub fn main() { 1 }");
+        incompatible.protocol_version = Some(3);
+        assert!(matches!(
+            incompatible.validate_protocol(2),
+            Err(super::RuntimeSpecError::Protocol {
+                expected: 2,
+                actual: 3
+            })
+        ));
+
+        assert!(spec("pub fn main() { 1 }").validate_protocol(2).is_ok());
     }
 
     fn spec(source: &str) -> RuntimeSpec {

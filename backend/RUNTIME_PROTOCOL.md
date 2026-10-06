@@ -7,11 +7,12 @@ pequeno: eventos entram no processo por `stdin` e imagens SVG saem por
 
 ## Processo e ciclo de vida
 
-Cada sala reserva uma sessão de runtime. No protocolo temporário atual, o
-subprocesso ainda nasce quando recebe `start`; a migração para Sinteract fará
-o processo nascer durante a preparação da sala e validar o `hello` antes de a
-sala ficar disponível. No protótipo, o backend executa a si próprio como
-runtime reserva:
+Cada sala inicia uma sessão e seu subprocesso durante `Preparing`. O runtime
+reserva é considerado pronto depois que o processo e os dois pipes foram
+criados; ele então espera o comando `start` sem produzir frames. Na migração
+para Sinteract, essa confirmação local será substituída pela validação do
+`hello` antes de a sala ficar disponível. No protótipo, o backend executa a si
+próprio como runtime reserva:
 
 ```text
 backend runtime-stub game-<id>
@@ -157,6 +158,13 @@ fonte de um elemento `img`, e não inserido como HTML executável.
   mutex global de salas durante I/O.
 - A tarefa leitora completa cada `read_u32`/`read_exact` sem cancelá-lo no meio;
   comandos novos não interrompem uma leitura parcialmente iniciada.
+
+O processo recebe um ambiente vazio e usa o diretório materializado como
+diretório de trabalho. `stderr` continua herdado pelo backend para diagnóstico.
+Depois de `stop` ou do fechamento da fila, o runtime tem dois segundos para
+encerrar e fechar sua saída; após esse prazo o backend o mata e coleta. Queda
+antes de `stop`, segundo `start` e eventos anteriores ao primeiro `start`
+encerram a sessão com falha controlada.
 
 O protocolo não contém estado Gleam. Quando o runtime real for conectado, o
 estado do jogo permanece privado ao processo; o Sarcade envia eventos e recebe

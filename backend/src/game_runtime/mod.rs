@@ -6,5 +6,5 @@ pub mod stub;
 
 pub use process::{RuntimeHandle, RuntimeOutput};
 pub use protocol::{RuntimeCommand, RuntimeInputEvent, RuntimeMessage, RuntimePlayer};
-pub use spec::RuntimeSpec;
+pub use spec::{RuntimeSpec, RuntimeSpecError};
 pub use materialize::MaterializedSource;

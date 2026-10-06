@@ -26,8 +26,10 @@ pub struct Room {
 #[derive(Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomStatus {
+    Preparing,
     Waiting,
     Running,
+    Failed,
 }
 
 #[derive(Clone, Serialize)]
@@ -225,6 +227,7 @@ pub enum RoomError {
     AlreadyRunning,
     NotRunning,
     RuntimeUnavailable,
+    RuntimePreparing,
     InvalidPlayerToken,
     ConnectionReplaced,
 }
@@ -245,6 +248,7 @@ impl RoomError {
             RoomError::AlreadyRunning => "A partida já foi iniciada",
             RoomError::NotRunning => "A partida ainda não foi iniciada",
             RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
+            RoomError::RuntimePreparing => "Runtime da partida ainda está sendo preparado",
             RoomError::InvalidPlayerToken => "Token de reconexão inválido",
             RoomError::ConnectionReplaced => "Esta conexão foi substituída por uma reconexão",
         }
