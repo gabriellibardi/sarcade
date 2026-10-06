@@ -21,6 +21,7 @@ pub struct Room {
     pub runtime: RuntimeHandle,
 
     pub created_at: Instant,
+    pub started_at: Option<Instant>,
 }
 
 #[derive(Clone, Serialize, PartialEq)]

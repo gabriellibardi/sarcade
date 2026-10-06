@@ -71,6 +71,7 @@ fn create_room_with_runtime(
         tx: tx.clone(),
         runtime,
         created_at,
+        started_at: None,
     };
 
     rooms.insert(code.clone(), room);
@@ -333,6 +334,7 @@ pub fn start_room(
         .map_err(|_| RoomError::RuntimeUnavailable)?;
 
     room.status = RoomStatus::Running;
+    room.started_at = Some(Instant::now());
 
     let snapshot = room_snapshot(room);
 
@@ -473,6 +475,8 @@ fn forward_runtime_outputs(
     tx: broadcast::Sender<ServerMessage>,
 ) {
     tokio::spawn(async move {
+        let mut first_frame_logged = false;
+
         while let Some(output) = outputs.recv().await {
             let message = match output {
                 RuntimeOutput::Ready => {
@@ -497,6 +501,19 @@ fn forward_runtime_outputs(
                 }
                 RuntimeOutput::Frame { player_id, svg } => match String::from_utf8(svg) {
                     Ok(svg) if svg.trim_start().starts_with("<svg") => {
+                        if !first_frame_logged
+                            && let Some((elapsed, revision_id, runtime_build)) =
+                                first_frame_metrics(&store, &code)
+                        {
+                            tracing::info!(
+                                room = %code,
+                                revision_id,
+                                runtime_build,
+                                start_to_first_frame_ms = elapsed.as_millis(),
+                                "runtime produziu o primeiro frame"
+                            );
+                            first_frame_logged = true;
+                        }
                         ServerMessage::Frame { player_id, svg }
                     }
                     Ok(_) => ServerMessage::Error {
@@ -530,6 +547,21 @@ fn forward_runtime_outputs(
             let _ = tx.send(message);
         }
     });
+}
+
+fn first_frame_metrics(
+    store: &RoomStore,
+    code: &str,
+) -> Option<(Duration, i64, String)> {
+    let rooms = store.lock().ok()?;
+    let room = rooms.get(code)?;
+    let started_at = room.started_at?;
+
+    Some((
+        started_at.elapsed(),
+        room.spec.revision_id(),
+        room.spec.runtime_build_id().to_string(),
+    ))
 }
 
 fn ensure_host(room: &Room, player_id: u64) -> Result<(), RoomError> {

@@ -22,6 +22,7 @@ use crate::rooms::{
 const ROOM_WS_SUBPROTOCOL: &str = "sinteract.v1";
 const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_INPUT_EVENTS_PER_SECOND: usize = 120;
+const CLIENT_SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize)]
 pub struct JoinQuery {
@@ -82,9 +83,11 @@ async fn handle_room_socket(
                 message: error.message().to_string(),
             };
 
-            let _ = socket
-                .send(Message::Text(to_ws_text(&message).into()))
-                .await;
+            let _ = tokio::time::timeout(
+                CLIENT_SEND_TIMEOUT,
+                socket.send(Message::Text(to_ws_text(&message).into())),
+            )
+            .await;
 
             return;
         }
@@ -101,10 +104,14 @@ async fn handle_room_socket(
         room: join.room,
     };
 
-    if socket
-        .send(Message::Text(to_ws_text(&joined_message).into()))
-        .await
-        .is_err()
+    if !matches!(
+        tokio::time::timeout(
+            CLIENT_SEND_TIMEOUT,
+            socket.send(Message::Text(to_ws_text(&joined_message).into())),
+        )
+        .await,
+        Ok(Ok(()))
+    )
     {
         let _ = service::leave_room(&rooms, &code, player_id, connection_generation);
         return;
@@ -138,8 +145,18 @@ async fn handle_room_socket(
             }
 
             broadcast_message = rx.recv() => {
-                let Ok(message) = broadcast_message else {
-                    break;
+                let message = match broadcast_message {
+                    Ok(message) => message,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            room = %code,
+                            player_id,
+                            skipped,
+                            "conexão lenta perdeu mensagens da sala"
+                        );
+                        break;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
 
                 if !message.is_for_connection(player_id, connection_generation) {
@@ -158,10 +175,11 @@ async fn handle_room_socket(
             }
 
             _ = keepalive.tick() => {
-                if sender
-                    .send(Message::Ping(Vec::new().into()))
-                    .await
-                    .is_err()
+                if !send_with_timeout(
+                    &mut sender,
+                    Message::Ping(Vec::new().into()),
+                )
+                .await
                 {
                     break;
                 }
@@ -251,7 +269,7 @@ async fn handle_incoming_message(
         }
 
         Message::Ping(payload) => {
-            sender.send(Message::Pong(payload)).await.is_ok()
+            send_with_timeout(sender, Message::Pong(payload)).await
         }
 
         Message::Pong(_) => true,
@@ -311,10 +329,17 @@ async fn send_server_message(
     sender: &mut SplitSink<WebSocket, Message>,
     message: &ServerMessage,
 ) -> bool {
-    sender
-        .send(Message::Text(to_ws_text(message).into()))
-        .await
-        .is_ok()
+    send_with_timeout(sender, Message::Text(to_ws_text(message).into())).await
+}
+
+async fn send_with_timeout(
+    sender: &mut SplitSink<WebSocket, Message>,
+    message: Message,
+) -> bool {
+    matches!(
+        tokio::time::timeout(CLIENT_SEND_TIMEOUT, sender.send(message)).await,
+        Ok(Ok(()))
+    )
 }
 
 fn to_ws_text(message: &ServerMessage) -> String {
@@ -329,13 +354,14 @@ mod tests {
 
     use super::{
         InputRateLimiter, MAX_CLIENT_MESSAGE_BYTES, MAX_INPUT_EVENTS_PER_SECOND,
-        ROOM_WS_SUBPROTOCOL,
+        CLIENT_SEND_TIMEOUT, ROOM_WS_SUBPROTOCOL,
     };
 
     #[test]
     fn room_socket_uses_the_sinteract_protocol_and_view_size_limit() {
         assert_eq!(ROOM_WS_SUBPROTOCOL, "sinteract.v1");
         assert_eq!(MAX_CLIENT_MESSAGE_BYTES, 64 * 1024);
+        assert_eq!(CLIENT_SEND_TIMEOUT, Duration::from_secs(2));
     }
 
     #[test]

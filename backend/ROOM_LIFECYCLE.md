@@ -81,6 +81,12 @@ Ultrapassar esse limite envia um erro e encerra a conexão; mensagens
 administrativas não consomem essa cota. O caminho binário terá seu próprio
 controle quando o `ServerCore` for integrado.
 
+O envio para um cliente tem timeout de dois segundos. Se o receptor do canal
+da sala ficar para trás e perder mensagens, a conexão é encerrada e o número
+descartado é registrado com sala e jogador; ela nunca bloqueia os outros
+participantes. O backend também registra o tempo de preparação do processo e,
+sem incluir código ou tokens, o intervalo entre `Start` e o primeiro frame.
+
 Uma sala que continua vazia por dez minutos é removida por uma tarefa própria,
 mesmo que não chegue outra requisição para disparar limpeza oportunista. A
 remoção envia `stop`, fecha a fila e libera processo e diretório temporário.
