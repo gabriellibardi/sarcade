@@ -118,10 +118,7 @@ impl RuntimeSpec {
         self.max_players
     }
 
-    pub fn validate_protocol(
-        &self,
-        expected_protocol: u32,
-    ) -> Result<(), RuntimeSpecError> {
+    pub fn validate_protocol(&self, expected_protocol: u32) -> Result<(), RuntimeSpecError> {
         if self.runtime_status == "unavailable" {
             return Err(RuntimeSpecError::Unavailable);
         }

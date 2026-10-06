@@ -7,8 +7,7 @@ use backend::game_runtime::{
 #[tokio::test]
 async fn runtime_is_ready_before_start_and_reuses_the_same_process() {
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_backend"));
-    let (runtime, mut outputs) =
-        RuntimeHandle::reserve_with_executable(runtime_spec(), executable);
+    let (runtime, mut outputs) = RuntimeHandle::reserve_with_executable(runtime_spec(), executable);
 
     let ready = tokio::time::timeout(Duration::from_secs(5), outputs.recv())
         .await
@@ -62,8 +61,7 @@ async fn missing_executable_fails_before_ready() {
         "sarcade-runtime-that-does-not-exist-{}",
         std::process::id()
     ));
-    let (_runtime, mut outputs) =
-        RuntimeHandle::reserve_with_executable(runtime_spec(), missing);
+    let (_runtime, mut outputs) = RuntimeHandle::reserve_with_executable(runtime_spec(), missing);
 
     let output = next_output(&mut outputs).await;
     assert!(matches!(output, RuntimeOutput::Failed(_)));
@@ -101,15 +99,15 @@ async fn a_second_start_ends_the_existing_session_instead_of_relaunching() {
 
 async fn prepared_runtime() -> (RuntimeHandle, tokio::sync::mpsc::Receiver<RuntimeOutput>) {
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_backend"));
-    let (runtime, mut outputs) =
-        RuntimeHandle::reserve_with_executable(runtime_spec(), executable);
-    assert!(matches!(next_output(&mut outputs).await, RuntimeOutput::Ready));
+    let (runtime, mut outputs) = RuntimeHandle::reserve_with_executable(runtime_spec(), executable);
+    assert!(matches!(
+        next_output(&mut outputs).await,
+        RuntimeOutput::Ready
+    ));
     (runtime, outputs)
 }
 
-async fn next_failure(
-    outputs: &mut tokio::sync::mpsc::Receiver<RuntimeOutput>,
-) -> String {
+async fn next_failure(outputs: &mut tokio::sync::mpsc::Receiver<RuntimeOutput>) -> String {
     loop {
         match next_output(outputs).await {
             RuntimeOutput::Failed(error) => return error,
@@ -119,9 +117,7 @@ async fn next_failure(
     }
 }
 
-async fn next_output(
-    outputs: &mut tokio::sync::mpsc::Receiver<RuntimeOutput>,
-) -> RuntimeOutput {
+async fn next_output(outputs: &mut tokio::sync::mpsc::Receiver<RuntimeOutput>) -> RuntimeOutput {
     tokio::time::timeout(Duration::from_secs(5), outputs.recv())
         .await
         .expect("runtime output timed out")

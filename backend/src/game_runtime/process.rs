@@ -11,8 +11,9 @@ use tokio::{
 };
 
 use super::{
+    MaterializedSource, RuntimeSpec,
     protocol::{self, RuntimeCommand, RuntimeMessage},
-    stub, MaterializedSource, RuntimeSpec,
+    stub,
 };
 
 const COMMAND_QUEUE_CAPACITY: usize = 128;

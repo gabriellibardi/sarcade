@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use sha2::{Digest, Sha256};
 
 use super::RuntimeSpec;
@@ -72,9 +72,7 @@ fn validate_extension(extension: &str) -> io::Result<&str> {
 
     if extension.is_empty()
         || extension.len() > MAX_EXTENSION_BYTES
-        || !extension
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric())
+        || !extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
     {
         return Err(invalid_extension());
     }
@@ -167,7 +165,10 @@ mod tests {
         let materialized = MaterializedSource::create(&spec, &parent).unwrap();
         let directory = materialized.directory().to_path_buf();
 
-        assert_eq!(materialized.source_path().file_name().unwrap(), "game.gleam");
+        assert_eq!(
+            materialized.source_path().file_name().unwrap(),
+            "game.gleam"
+        );
         assert_eq!(
             fs::read_to_string(materialized.source_path()).unwrap(),
             spec.source_code()
