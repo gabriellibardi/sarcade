@@ -1,5 +1,13 @@
 <script lang="ts">
-	let { frameUrl }: { frameUrl: string } = $props();
+	let {
+		frameUrl,
+		sinteract,
+		canvas = $bindable(null)
+	}: {
+		frameUrl: string;
+		sinteract: boolean;
+		canvas?: HTMLCanvasElement | null;
+	} = $props();
 </script>
 
 <section class="surface-card overflow-hidden">
@@ -8,7 +16,14 @@
 		<h2 class="mt-1 text-xl font-black text-slate-950">Tela do jogo</h2>
 	</div>
 	<div class="bg-[#0d0d0d] p-1 sm:p-5">
-		{#if frameUrl}
+		{#if sinteract}
+			<canvas
+				bind:this={canvas}
+				tabindex="0"
+				aria-label="Tela interativa da partida"
+				class="block aspect-video h-auto min-h-64 w-full touch-none border-2 border-arcade-line bg-white object-contain outline-none focus:border-indigo-300"
+			></canvas>
+		{:else if frameUrl}
 			<img
 				src={frameUrl}
 				alt="Tela atual da partida"

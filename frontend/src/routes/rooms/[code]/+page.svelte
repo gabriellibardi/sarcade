@@ -2,14 +2,21 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import GameControls from '$lib/components/room/GameControls.svelte';
 	import GameViewport from '$lib/components/room/GameViewport.svelte';
 	import RoomJoinForm from '$lib/components/room/RoomJoinForm.svelte';
 	import RoomLobby from '$lib/components/room/RoomLobby.svelte';
 	import RoomToolbar from '$lib/components/room/RoomToolbar.svelte';
 	import Alert from '$lib/components/ui/Alert.svelte';
 	import type { RoomServerMessage, RoomSnapshot } from '$lib/types/room';
+	import {
+		encodeInput,
+		PadButton,
+		type PadButton as SinteractPadButton
+	} from '$sinteract/protocol';
+	import { View as SinteractView, type Link as SinteractLink } from '$sinteract/view';
 
 	let room: RoomSnapshot | null = null;
 	let socket: WebSocket | null = null;
@@ -24,6 +31,10 @@
 	let message = '';
 	let error = '';
 	let frameSvg = '';
+	let gameCanvas: HTMLCanvasElement | null = null;
+	let sinteractView: SinteractView | null = null;
+	let sinteractLink: SinteractLink | null = null;
+	let activatingSinteract = false;
 
 	const WS_CONNECTING = 0;
 	const WS_OPEN = 1;
@@ -38,6 +49,18 @@
 	$: canShowJoinForm = connectionState === WS_CLOSED;
 	$: canStart = Boolean(room?.can_start && amHost && room.status === 'waiting');
 	$: frameUrl = frameSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(frameSvg)}` : '';
+	$: if (room?.status === 'running' && room.sinteract && gameCanvas && isConnected) {
+		void activateSinteract();
+	}
+
+	const padButtons: Record<string, SinteractPadButton> = {
+		Up: PadButton.DPAD_UP,
+		Down: PadButton.DPAD_DOWN,
+		Left: PadButton.DPAD_LEFT,
+		Right: PadButton.DPAD_RIGHT,
+		ActionA: PadButton.A,
+		ActionB: PadButton.B
+	};
 
 	function getWsUrl() {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -83,7 +106,12 @@
 			if (socket !== nextSocket) return;
 
 			if (typeof event.data !== 'string') {
-				error = 'A view recebeu dados binários antes de o Sinteract estar disponível.';
+				if (event.data instanceof ArrayBuffer && sinteractLink?.onmessage) {
+					sinteractLink.onmessage(new Uint8Array(event.data));
+					return;
+				}
+
+				error = 'O servidor enviou dados binários antes de a view estar pronta.';
 				return;
 			}
 
@@ -124,6 +152,7 @@
 				playerToken = data.player_token;
 				room = data.room;
 				saveParticipation();
+				void activateSinteract();
 				break;
 
 			case 'connection_replaced':
@@ -141,6 +170,7 @@
 				room = data.room;
 				refreshHostStatus();
 				message = 'Partida iniciada.';
+				void activateSinteract();
 				break;
 
 			case 'host_changed':
@@ -220,6 +250,84 @@
 		});
 	}
 
+	async function activateSinteract() {
+		if (
+			activatingSinteract ||
+			sinteractView ||
+			room?.status !== 'running' ||
+			!room.sinteract ||
+			!socket ||
+			socket.readyState !== WS_OPEN
+		) {
+			return;
+		}
+
+		activatingSinteract = true;
+		await tick();
+
+		try {
+			const activeSocket = socket;
+			if (
+				!gameCanvas ||
+				!activeSocket ||
+				activeSocket.readyState !== WS_OPEN ||
+				room?.status !== 'running' ||
+				!room.sinteract
+			) {
+				return;
+			}
+
+			let open = true;
+			const link: SinteractLink = {
+				send(payload) {
+					if (open && socket === activeSocket && activeSocket.readyState === WS_OPEN) {
+						activeSocket.send(payload);
+					}
+				},
+				close() {
+					open = false;
+				},
+				onopen: null,
+				onmessage: null,
+				onclose: null
+			};
+			const view = new SinteractView(gameCanvas, {
+				keys: gameCanvas,
+				onError(cause) {
+					console.error(cause);
+					error = 'A view não conseguiu processar uma mensagem do jogo.';
+				}
+			});
+
+			sinteractLink = link;
+			sinteractView = view;
+			view.attach(link);
+			link.onopen?.();
+			gameCanvas.focus();
+		} finally {
+			activatingSinteract = false;
+		}
+	}
+
+	function closeSinteract() {
+		const view = sinteractView;
+		sinteractView = null;
+		sinteractLink = null;
+		view?.close();
+	}
+
+	function sendPad(kind: 'down' | 'up', input: string) {
+		const button = padButtons[input];
+		if (button === undefined || !sinteractLink) return;
+
+		sinteractLink.send(
+			encodeInput({
+				kind: 'pad',
+				action: { kind, button }
+			})
+		);
+	}
+
 	function closeSocket() {
 		const currentSocket = socket;
 		socket = null;
@@ -230,6 +338,7 @@
 	}
 
 	function resetParticipationState() {
+		closeSinteract();
 		myPlayerId = null;
 		amHost = false;
 		room = null;
@@ -347,7 +456,12 @@
 				class="mx-auto flex min-h-[calc(100vh-13rem)] w-full max-w-4xl flex-col justify-center gap-5"
 			>
 				<div class="relative">
-					<GameViewport {frameUrl} />
+					<GameViewport {frameUrl} sinteract={room.sinteract} bind:canvas={gameCanvas} />
+					<GameControls
+						enabled={Boolean(sinteractLink)}
+						onPadDown={(input) => sendPad('down', input)}
+						onPadUp={(input) => sendPad('up', input)}
+					/>
 				</div>
 			</div>
 		{/if}

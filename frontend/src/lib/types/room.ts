@@ -10,6 +10,7 @@ export type RoomStatus = 'preparing' | 'waiting' | 'running' | 'failed';
 export type RoomSnapshot = {
 	code: string;
 	game_id: number;
+	sinteract: boolean;
 	status: RoomStatus;
 	min_players: number;
 	max_players: number;
