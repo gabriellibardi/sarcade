@@ -8,13 +8,13 @@ use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::broadcast;
 
 use backend::game_runtime::{
-    RuntimeCommand, RuntimeHandle, RuntimeInputEvent, RuntimeOutput, RuntimePlayer,
+    RuntimeCommand, RuntimeHandle, RuntimeOutput, RuntimePlayer,
     RuntimeSpec,
 };
 
 use crate::rooms::{
     model::{
-        InputEvent, Player, Room, RoomError, RoomSnapshot, RoomStatus, ServerMessage,
+        Player, Room, RoomError, RoomSnapshot, RoomStatus, ServerMessage,
     },
     store::RoomStore,
 };
@@ -327,7 +327,6 @@ pub fn start_room(
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
 
     ensure_current_connection(room, player_id, connection_generation)?;
-    ensure_host(room, player_id)?;
 
     match room.status {
         RoomStatus::Preparing => return Err(RoomError::RuntimePreparing),
@@ -335,6 +334,8 @@ pub fn start_room(
         RoomStatus::Running => return Err(RoomError::AlreadyRunning),
         RoomStatus::Failed => return Err(RoomError::RuntimeUnavailable),
     }
+
+    ensure_host(room, player_id)?;
 
     if room.players.len() < room.spec.min_players() as usize {
         return Err(RoomError::InsufficientPlayers);
@@ -377,11 +378,12 @@ pub fn kick_player(
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
 
     ensure_current_connection(room, requester_id, connection_generation)?;
-    ensure_host(room, requester_id)?;
 
     if room.status == RoomStatus::Running {
         return Err(RoomError::AlreadyRunning);
     }
+
+    ensure_host(room, requester_id)?;
 
     if requester_id == target_id {
         return Err(RoomError::CannotKickSelf);
@@ -392,12 +394,6 @@ pub fn kick_player(
     }
 
     room.players.retain(|player| player.id != target_id);
-
-    if room.status == RoomStatus::Running {
-        let _ = room.runtime.send(RuntimeCommand::PlayerLeft {
-            player_id: target_id,
-        });
-    }
 
     if room.host_player_id == Some(target_id) {
         room.host_player_id = None;
@@ -428,6 +424,11 @@ pub fn promote_host(
     let room = rooms.get_mut(code).ok_or(RoomError::NotFound)?;
 
     ensure_current_connection(room, requester_id, connection_generation)?;
+
+    if room.status == RoomStatus::Running {
+        return Err(RoomError::AlreadyRunning);
+    }
+
     ensure_host(room, requester_id)?;
 
     if !room.players.iter().any(|player| player.id == target_id) {
@@ -452,41 +453,6 @@ pub fn promote_host(
     });
 
     Ok(())
-}
-
-pub fn broadcast_input(
-    store: &RoomStore,
-    code: &str,
-    player_id: u64,
-    connection_generation: u64,
-    event: InputEvent,
-) -> Result<(), RoomError> {
-    let rooms = lock_rooms(store)?;
-    let room = rooms.get(code).ok_or(RoomError::NotFound)?;
-
-    ensure_current_connection(room, player_id, connection_generation)?;
-
-    if room.status != RoomStatus::Running {
-        return Err(RoomError::NotRunning);
-    }
-
-    room.runtime
-        .send(RuntimeCommand::Input {
-            player_id,
-            event: runtime_input_event(event),
-        })
-        .map_err(|_| RoomError::RuntimeUnavailable)?;
-
-    Ok(())
-}
-
-fn runtime_input_event(event: InputEvent) -> RuntimeInputEvent {
-    match event {
-        InputEvent::KeyDown { key } => RuntimeInputEvent::KeyDown { key },
-        InputEvent::KeyUp { key } => RuntimeInputEvent::KeyUp { key },
-        InputEvent::PadDown { input } => RuntimeInputEvent::PadDown { input },
-        InputEvent::PadUp { input } => RuntimeInputEvent::PadUp { input },
-    }
 }
 
 fn forward_runtime_outputs(
@@ -744,10 +710,11 @@ mod tests {
     use backend::game_runtime::{RuntimeHandle, RuntimeOutput, RuntimeSpec};
 
     use super::{
-        CreatedRoom, broadcast_input, create_room_with_runtime, expire_disconnected_room_after,
-        expire_empty_room_after, join_room, leave_room, start_room, validate_nickname,
+        CreatedRoom, create_room_with_runtime, expire_disconnected_room_after,
+        expire_empty_room_after, join_room, kick_player, leave_room, promote_host,
+        start_room, validate_nickname,
     };
-    use crate::rooms::{InputEvent, RoomError, RoomStatus, ServerMessage, new_store};
+    use crate::rooms::{new_store, RoomError, RoomStatus, ServerMessage};
 
     #[test]
     fn nickname_is_trimmed_and_limited_on_the_server() {
@@ -836,14 +803,10 @@ mod tests {
         .await;
         assert!(store.lock().unwrap().contains_key(&created.code));
 
-        let old_connection = broadcast_input(
-            &store,
-            &created.code,
-            joined.player_id,
-            joined.connection_generation,
-            InputEvent::KeyDown { key: "a".into() },
-        );
-        assert!(matches!(old_connection, Err(RoomError::ConnectionReplaced)));
+        let rooms = store.lock().unwrap();
+        let room = rooms.get(&created.code).unwrap();
+        let player = &room.players[0];
+        assert_ne!(player.connection_generation, joined.connection_generation);
     }
 
     #[tokio::test]
@@ -869,6 +832,73 @@ mod tests {
                 Some("token-inexistente".into()),
             ),
             Err(RoomError::InvalidPlayerToken)
+        ));
+    }
+
+    #[tokio::test]
+    async fn running_room_rejects_every_lobby_mutation() {
+        let store = new_store();
+        let created = create_test_room(&store, runtime_spec());
+        let joined = join_room(
+            &store,
+            &created.code,
+            "Host".into(),
+            Some(created.host_token),
+            None,
+        )
+        .unwrap();
+        let guest = join_room(
+            &store,
+            &created.code,
+            "Guest".into(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        {
+            let mut rooms = store.lock().unwrap();
+            rooms.get_mut(&created.code).unwrap().status = RoomStatus::Running;
+        }
+
+        assert!(matches!(
+            kick_player(
+                &store,
+                &created.code,
+                joined.player_id,
+                joined.connection_generation,
+                joined.player_id,
+            ),
+            Err(RoomError::AlreadyRunning)
+        ));
+        assert!(matches!(
+            promote_host(
+                &store,
+                &created.code,
+                joined.player_id,
+                joined.connection_generation,
+                joined.player_id,
+            ),
+            Err(RoomError::AlreadyRunning)
+        ));
+        assert!(matches!(
+            start_room(
+                &store,
+                &created.code,
+                guest.player_id,
+                guest.connection_generation,
+            ),
+            Err(RoomError::AlreadyRunning)
+        ));
+        assert!(matches!(
+            kick_player(
+                &store,
+                &created.code,
+                guest.player_id,
+                guest.connection_generation,
+                joined.player_id,
+            ),
+            Err(RoomError::AlreadyRunning)
         ));
     }
 

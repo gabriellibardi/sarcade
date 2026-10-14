@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn input_names_match_the_existing_websocket_contract() {
+    fn input_names_match_the_temporary_runtime_contract() {
         let events = [
             (RuntimeInputEvent::KeyDown { key: "a".into() }, "keydown"),
             (RuntimeInputEvent::KeyUp { key: "a".into() }, "keyup"),

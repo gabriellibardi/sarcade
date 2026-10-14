@@ -17,10 +17,6 @@ export type RoomSnapshot = {
 	can_start: boolean;
 };
 
-export type GameInputEvent =
-	| { type: 'keydown' | 'keyup'; key: string }
-	| { type: 'paddown' | 'padup'; input: string };
-
 export type RoomServerMessage =
 	| {
 			type: 'joined';
@@ -35,7 +31,5 @@ export type RoomServerMessage =
 	| { type: 'host_changed'; host_player_id: number; room: RoomSnapshot }
 	| { type: 'player_kicked'; player_id: number; room: RoomSnapshot }
 	| { type: 'player_left'; player_id: number; room: RoomSnapshot }
-	| { type: 'input'; player_id: number; event: GameInputEvent }
 	| { type: 'frame'; svg: string }
-	| { type: 'error'; message: string }
-	| { type: 'pong' };
+	| { type: 'error'; message: string };

@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{
     extract::{
@@ -16,13 +16,35 @@ use serde::Deserialize;
 
 use crate::rooms::{
     service,
-    ClientMessage, RoomStore, ServerMessage,
+    ClientMessage, RoomError, RoomStatus, RoomStore, ServerMessage,
 };
 
-const ROOM_WS_SUBPROTOCOL: &str = "sinteract.v1";
+const ROOM_WS_SUBPROTOCOL: &str = "sarcade.room.v1";
 const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
-const MAX_INPUT_EVENTS_PER_SECOND: usize = 120;
 const CLIENT_SEND_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SocketPhase {
+    Lobby,
+    Running,
+}
+
+impl SocketPhase {
+    fn from_room_status(status: &RoomStatus) -> Self {
+        match status {
+            RoomStatus::Running => Self::Running,
+            RoomStatus::Preparing | RoomStatus::Waiting | RoomStatus::Failed => Self::Lobby,
+        }
+    }
+
+    fn accepts_client_text(self) -> bool {
+        self == Self::Lobby
+    }
+
+    fn accepts_client_binary(self) -> bool {
+        self == Self::Running
+    }
+}
 
 #[derive(Deserialize)]
 pub struct JoinQuery {
@@ -45,7 +67,7 @@ pub async fn room_ws(
     if ws.selected_protocol().is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            "Subprotocolo WebSocket sinteract.v1 é obrigatório",
+            "Subprotocolo WebSocket sarcade.room.v1 é obrigatório",
         )
             .into_response();
     }
@@ -95,6 +117,7 @@ async fn handle_room_socket(
 
     let player_id = join.player_id;
     let connection_generation = join.connection_generation;
+    let mut phase = SocketPhase::from_room_status(&join.room.status);
     let mut rx = join.rx;
 
     let joined_message = ServerMessage::Joined {
@@ -120,7 +143,6 @@ async fn handle_room_socket(
     let (mut sender, mut receiver) = socket.split();
 
     let mut keepalive = tokio::time::interval(Duration::from_secs(25));
-    let mut input_limiter = InputRateLimiter::new(Instant::now());
 
     loop {
         tokio::select! {
@@ -135,7 +157,7 @@ async fn handle_room_socket(
                     &code,
                     player_id,
                     connection_generation,
-                    &mut input_limiter,
+                    phase,
                     message,
                 ).await;
 
@@ -161,6 +183,10 @@ async fn handle_room_socket(
 
                 if !message.is_for_connection(player_id, connection_generation) {
                     continue;
+                }
+
+                if matches!(&message, ServerMessage::RoomStarted { .. }) {
+                    phase = SocketPhase::Running;
                 }
 
                 let should_close = message.closes_connection(player_id, connection_generation);
@@ -196,10 +222,19 @@ async fn handle_incoming_message(
     code: &str,
     player_id: u64,
     connection_generation: u64,
-    input_limiter: &mut InputRateLimiter,
+    phase: SocketPhase,
     message: Message,
 ) -> bool {
     match message {
+        Message::Text(_) if !phase.accepts_client_text() => {
+            let _ = send_error(
+                sender,
+                "Mensagens de texto do cliente não são aceitas durante a partida",
+            )
+            .await;
+            false
+        }
+
         Message::Text(text) => {
             let parsed = serde_json::from_str::<ClientMessage>(&text.to_string());
 
@@ -215,55 +250,23 @@ async fn handle_incoming_message(
                     service::start_room(rooms, code, player_id, connection_generation)
                 }
 
-                ClientMessage::Kick { player_id: target_id } => {
-                    service::kick_player(
-                        rooms,
-                        code,
-                        player_id,
-                        connection_generation,
-                        target_id,
-                    )
-                }
+                ClientMessage::Kick {
+                    player_id: target_id,
+                } => service::kick_player(rooms, code, player_id, connection_generation, target_id),
 
-                ClientMessage::Promote { player_id: target_id } => {
-                    service::promote_host(
-                        rooms,
-                        code,
-                        player_id,
-                        connection_generation,
-                        target_id,
-                    )
-                }
-
-                ClientMessage::Ping => {
-                    return send_server_message(sender, &ServerMessage::Pong).await;
-                }
-
-                other => {
-                    if let Some(event) = other.into_input_event() {
-                        if !input_limiter.allow(Instant::now()) {
-                            let _ = send_error(
-                                sender,
-                                "Limite de eventos de entrada excedido",
-                            )
-                            .await;
-                            return false;
-                        }
-                        service::broadcast_input(
-                            rooms,
-                            code,
-                            player_id,
-                            connection_generation,
-                            event,
-                        )
-                    } else {
-                        Ok(())
-                    }
+                ClientMessage::Promote {
+                    player_id: target_id,
+                } => {
+                    service::promote_host(rooms, code, player_id, connection_generation, target_id)
                 }
             };
 
             match result {
                 Ok(_) => true,
+                Err(error @ RoomError::AlreadyRunning) => {
+                    let _ = send_error(sender, error.message()).await;
+                    false
+                }
                 Err(error) => send_error(sender, error.message()).await,
             }
         }
@@ -276,41 +279,23 @@ async fn handle_incoming_message(
 
         Message::Close(_) => false,
 
+        Message::Binary(_) if !phase.accepts_client_binary() => {
+            let _ = send_error(
+                sender,
+                "Mensagens binárias só são aceitas durante a partida",
+            )
+            .await;
+            false
+        }
+
         Message::Binary(_) => {
-            send_error(
+            let _ = send_error(
                 sender,
                 "A integração binária com o Sinteract ainda não está disponível",
             )
-            .await
+            .await;
+            false
         }
-    }
-}
-
-struct InputRateLimiter {
-    window_started: Instant,
-    accepted: usize,
-}
-
-impl InputRateLimiter {
-    fn new(now: Instant) -> Self {
-        Self {
-            window_started: now,
-            accepted: 0,
-        }
-    }
-
-    fn allow(&mut self, now: Instant) -> bool {
-        if now.duration_since(self.window_started) >= Duration::from_secs(1) {
-            self.window_started = now;
-            self.accepted = 0;
-        }
-
-        if self.accepted >= MAX_INPUT_EVENTS_PER_SECOND {
-            return false;
-        }
-
-        self.accepted += 1;
-        true
     }
 }
 
@@ -350,29 +335,31 @@ fn to_ws_text(message: &ServerMessage) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    use super::{
-        InputRateLimiter, MAX_CLIENT_MESSAGE_BYTES, MAX_INPUT_EVENTS_PER_SECOND,
-        CLIENT_SEND_TIMEOUT, ROOM_WS_SUBPROTOCOL,
-    };
+    use super::{CLIENT_SEND_TIMEOUT, MAX_CLIENT_MESSAGE_BYTES, ROOM_WS_SUBPROTOCOL, SocketPhase};
+    use crate::rooms::RoomStatus;
 
     #[test]
-    fn room_socket_uses_the_sinteract_protocol_and_view_size_limit() {
-        assert_eq!(ROOM_WS_SUBPROTOCOL, "sinteract.v1");
+    fn room_socket_uses_the_sarcade_protocol_and_view_size_limit() {
+        assert_eq!(ROOM_WS_SUBPROTOCOL, "sarcade.room.v1");
         assert_eq!(MAX_CLIENT_MESSAGE_BYTES, 64 * 1024);
         assert_eq!(CLIENT_SEND_TIMEOUT, Duration::from_secs(2));
     }
 
     #[test]
-    fn input_rate_limit_closes_a_burst_and_recovers_in_the_next_window() {
-        let now = Instant::now();
-        let mut limiter = InputRateLimiter::new(now);
-
-        for _ in 0..MAX_INPUT_EVENTS_PER_SECOND {
-            assert!(limiter.allow(now));
-        }
-        assert!(!limiter.allow(now));
-        assert!(limiter.allow(now + Duration::from_secs(1)));
+    fn only_running_rooms_start_in_the_binary_phase() {
+        assert_eq!(
+            SocketPhase::from_room_status(&RoomStatus::Running),
+            SocketPhase::Running
+        );
+        assert_eq!(
+            SocketPhase::from_room_status(&RoomStatus::Waiting),
+            SocketPhase::Lobby
+        );
+        assert!(SocketPhase::Lobby.accepts_client_text());
+        assert!(!SocketPhase::Lobby.accepts_client_binary());
+        assert!(!SocketPhase::Running.accepts_client_text());
+        assert!(SocketPhase::Running.accepts_client_binary());
     }
 }

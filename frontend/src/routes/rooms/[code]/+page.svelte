@@ -3,8 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
-	import GameControls from '$lib/components/room/GameControls.svelte';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import GameViewport from '$lib/components/room/GameViewport.svelte';
 	import RoomJoinForm from '$lib/components/room/RoomJoinForm.svelte';
 	import RoomLobby from '$lib/components/room/RoomLobby.svelte';
@@ -30,8 +29,6 @@
 	const WS_OPEN = 1;
 	const WS_CLOSED = 3;
 	let connectionState = WS_CLOSED;
-	const pressedKeys = new SvelteMap<string, string>();
-	const keysWithBrowserAction = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);
 
 	const code = page.params.code ?? '';
 	const participationStorageKey = `sarcade:room:${code}:participation`;
@@ -40,7 +37,6 @@
 	$: isConnecting = connectionState === WS_CONNECTING;
 	$: canShowJoinForm = connectionState === WS_CLOSED;
 	$: canStart = Boolean(room?.can_start && amHost && room.status === 'waiting');
-	$: keyboardEnabled = Boolean(isConnected && room?.status === 'running');
 	$: frameUrl = frameSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(frameSvg)}` : '';
 
 	function getWsUrl() {
@@ -71,7 +67,7 @@
 		nickname = nickname.trim();
 		closeSocket();
 
-		const nextSocket = new WebSocket(getWsUrl(), 'sinteract.v1');
+		const nextSocket = new WebSocket(getWsUrl(), 'sarcade.room.v1');
 		nextSocket.binaryType = 'arraybuffer';
 		socket = nextSocket;
 		connectionState = WS_CONNECTING;
@@ -174,10 +170,6 @@
 				refreshHostStatus();
 				break;
 
-			case 'input':
-				// O evento completo já foi incluído no log por socket.onmessage.
-				break;
-
 			case 'frame':
 				frameSvg = data.svg;
 				break;
@@ -187,10 +179,6 @@
 					clearParticipation();
 				}
 				error = data.message;
-				break;
-
-			case 'pong':
-				// Keep-alive respondido pelo servidor.
 				break;
 		}
 	}
@@ -232,99 +220,7 @@
 		});
 	}
 
-	function sendKey(key: string) {
-		sendMessage({
-			type: 'keydown',
-			key
-		});
-	}
-
-	function sendKeyUp(key: string) {
-		sendMessage({
-			type: 'keyup',
-			key
-		});
-	}
-
-	function sendPadDown(input: string) {
-		sendMessage({
-			type: 'paddown',
-			input
-		});
-	}
-
-	function sendPadUp(input: string) {
-		sendMessage({
-			type: 'padup',
-			input
-		});
-	}
-
-	function isEditableTarget(target: EventTarget | null) {
-		if (!(target instanceof HTMLElement)) {
-			return false;
-		}
-
-		return (
-			target.isContentEditable || target.closest('input, textarea, select, button, a') !== null
-		);
-	}
-
-	function keyIdentifier(event: KeyboardEvent) {
-		return event.code || event.key;
-	}
-
-	function preventBrowserAction(event: KeyboardEvent) {
-		if (keysWithBrowserAction.has(event.key)) {
-			event.preventDefault();
-		}
-	}
-
-	function handleKeyDown(event: KeyboardEvent) {
-		if (!keyboardEnabled || isEditableTarget(event.target)) {
-			return;
-		}
-
-		const identifier = keyIdentifier(event);
-
-		preventBrowserAction(event);
-
-		// Um keydown é enviado por pressionamento. Enquanto a tecla estiver
-		// segurada, os eventos automáticos de repetição do navegador são ignorados.
-		if (event.repeat || pressedKeys.has(identifier)) {
-			return;
-		}
-
-		pressedKeys.set(identifier, event.key);
-		sendKey(event.key);
-	}
-
-	function handleKeyUp(event: KeyboardEvent) {
-		const identifier = keyIdentifier(event);
-		const pressedKey = pressedKeys.get(identifier);
-
-		if (pressedKey === undefined) {
-			return;
-		}
-
-		preventBrowserAction(event);
-		pressedKeys.delete(identifier);
-		sendKeyUp(pressedKey);
-	}
-
-	function releasePressedKeys() {
-		if (socket?.readyState === WS_OPEN) {
-			for (const key of pressedKeys.values()) {
-				socket.send(JSON.stringify({ type: 'keyup', key }));
-			}
-		}
-
-		pressedKeys.clear();
-	}
-
 	function closeSocket() {
-		releasePressedKeys();
-
 		const currentSocket = socket;
 		socket = null;
 		connectionState = WS_CLOSED;
@@ -338,7 +234,6 @@
 		amHost = false;
 		room = null;
 		frameSvg = '';
-		pressedKeys.clear();
 	}
 
 	function saveParticipation() {
@@ -410,10 +305,6 @@
 	}
 
 	onMount(() => {
-		window.addEventListener('keydown', handleKeyDown);
-		window.addEventListener('keyup', handleKeyUp);
-		window.addEventListener('blur', releasePressedKeys);
-
 		const params = new SvelteURLSearchParams(window.location.search);
 
 		nickname = params.get('nickname') ?? '';
@@ -425,9 +316,6 @@
 		}
 
 		return () => {
-			window.removeEventListener('keydown', handleKeyDown);
-			window.removeEventListener('keyup', handleKeyUp);
-			window.removeEventListener('blur', releasePressedKeys);
 			closeSocket();
 		};
 	});
@@ -460,7 +348,6 @@
 			>
 				<div class="relative">
 					<GameViewport {frameUrl} />
-					<GameControls enabled={keyboardEnabled} onPadDown={sendPadDown} onPadUp={sendPadUp} />
 				</div>
 			</div>
 		{/if}

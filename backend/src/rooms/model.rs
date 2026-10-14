@@ -68,49 +68,6 @@ pub enum ClientMessage {
 
     #[serde(rename = "promote")]
     Promote { player_id: u64 },
-
-    #[serde(rename = "keydown")]
-    KeyDown { key: String },
-
-    #[serde(rename = "keyup")]
-    KeyUp { key: String },
-
-    #[serde(rename = "paddown")]
-    PadDown { input: String },
-
-    #[serde(rename = "padup")]
-    PadUp { input: String },
-
-    #[serde(rename = "ping")]
-    Ping,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(tag = "type")]
-pub enum InputEvent {
-    #[serde(rename = "keydown")]
-    KeyDown { key: String },
-
-    #[serde(rename = "keyup")]
-    KeyUp { key: String },
-
-    #[serde(rename = "paddown")]
-    PadDown { input: String },
-
-    #[serde(rename = "padup")]
-    PadUp { input: String },
-}
-
-impl ClientMessage {
-    pub fn into_input_event(self) -> Option<InputEvent> {
-        match self {
-            ClientMessage::KeyDown { key } => Some(InputEvent::KeyDown { key }),
-            ClientMessage::KeyUp { key } => Some(InputEvent::KeyUp { key }),
-            ClientMessage::PadDown { input } => Some(InputEvent::PadDown { input }),
-            ClientMessage::PadUp { input } => Some(InputEvent::PadUp { input }),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Serialize)]
@@ -160,12 +117,6 @@ pub enum ServerMessage {
         room: RoomSnapshot,
     },
 
-    #[serde(rename = "input")]
-    Input {
-        player_id: u64,
-        event: InputEvent,
-    },
-
     #[serde(rename = "frame")]
     Frame {
         #[serde(skip)]
@@ -177,9 +128,6 @@ pub enum ServerMessage {
     Error {
         message: String,
     },
-
-    #[serde(rename = "pong")]
-    Pong,
 }
 
 impl ServerMessage {
@@ -227,7 +175,6 @@ pub enum RoomError {
     PlayerNotFound,
     CannotKickSelf,
     AlreadyRunning,
-    NotRunning,
     RuntimeUnavailable,
     RuntimePreparing,
     InvalidPlayerToken,
@@ -248,7 +195,6 @@ impl RoomError {
             RoomError::PlayerNotFound => "Jogador não encontrado",
             RoomError::CannotKickSelf => "O host não pode expulsar a si mesmo",
             RoomError::AlreadyRunning => "A partida já foi iniciada",
-            RoomError::NotRunning => "A partida ainda não foi iniciada",
             RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
             RoomError::RuntimePreparing => "Runtime da partida ainda está sendo preparado",
             RoomError::InvalidPlayerToken => "Token de reconexão inválido",
@@ -259,7 +205,20 @@ impl RoomError {
 
 #[cfg(test)]
 mod tests {
-    use super::{Player, ServerMessage};
+    use super::{ClientMessage, Player, ServerMessage};
+
+    #[test]
+    fn textual_game_inputs_are_not_part_of_the_room_protocol() {
+        for payload in [
+            r#"{"type":"keydown","key":"a"}"#,
+            r#"{"type":"keyup","key":"a"}"#,
+            r#"{"type":"paddown","input":"Left"}"#,
+            r#"{"type":"padup","input":"Left"}"#,
+            r#"{"type":"ping"}"#,
+        ] {
+            assert!(serde_json::from_str::<ClientMessage>(payload).is_err());
+        }
+    }
 
     #[test]
     fn targeted_frame_is_visible_only_to_its_player() {

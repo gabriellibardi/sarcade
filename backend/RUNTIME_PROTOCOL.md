@@ -18,10 +18,12 @@ próprio como runtime reserva:
 backend runtime-stub game-<id>
 ```
 
-No futuro, esse ponto de criação será substituído por algo equivalente a:
+No futuro, esse ponto de criação será substituído pela execução normal do
+arquivo materializado no Sgleam, com `SINTERACT_SESSION` e fd 3/fd 4. O Sgleam
+atual não exige um subcomando de servidor; conceitualmente, o launcher fará:
 
 ```text
-sgleam --server <caminho-do-jogo>
+sgleam <caminho-do-jogo>
 ```
 
 Antes de iniciar o subprocesso, o backend materializa exatamente o código da
@@ -93,9 +95,12 @@ Entrada de jogador:
 }
 ```
 
-As variantes de `event` atualmente aceitas são `keydown`, `keyup`, `paddown`
-e `padup`. O servidor obtém `player_id` da própria conexão WebSocket; o cliente
-não escolhe em nome de qual jogador o evento será executado.
+As variantes temporárias de `event` aceitas pelo runtime reserva são `keydown`,
+`keyup`, `paddown` e `padup`. Elas permanecem no protocolo 2 e em seus testes,
+mas o WebSocket `sarcade.room.v1` não produz mais esses comandos: em `Running`,
+entrada de navegador será exclusivamente binária e só voltará a alcançar a
+engine quando o `ServerCore` substituir este protocolo. O cliente nunca escolhe
+em nome de qual jogador uma entrada será executada.
 
 Outros comandos:
 

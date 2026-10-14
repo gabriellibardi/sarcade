@@ -64,22 +64,30 @@ nickname nem expulsar um assento durante a partida.
 
 ### WebSocket atual
 
-O endpoint de sala exige o subprotocolo `sinteract.v1` e limita mensagens e
+O endpoint de sala exige o subprotocolo `sarcade.room.v1` e limita mensagens e
 frames recebidos a 64 KiB, o mesmo limite das mensagens de view do Sinteract.
-Ele usa mensagens de texto JSON para lobby, administração, entradas e frames
-SVG do runtime reserva. O servidor associa cada ação ao `player_id` e à geração
-autenticados pela própria conexão. Frames direcionados só são enviados ao
-participante correspondente. O servidor usa Ping/Pong do WebSocket; não há um
-segundo keep-alive no protocolo JSON.
+O protocolo da conexão reserva texto ao JSON administrativo do Sarcade e
+binário a um payload completo Sinteract v1, sem envelope adicional. O nome do
+subprotocolo é do Sarcade porque a conexão não é uma sessão Sinteract pura.
+
+Antes de `Running`, o cliente pode enviar por texto somente `start`, `kick` e
+`promote`; binários são recusados. O `Start` mantém aberto o mesmo WebSocket e
+muda sua fase. Em `Running`, todo texto enviado pelo cliente é recusado e a
+conexão é encerrada; `kick`, `promote`, um segundo `start`, entradas JSON e ping
+JSON não pertencem à partida. O keep-alive usa Ping/Pong nativo do WebSocket.
+O servidor ainda pode usar texto para comunicar falha controlada.
 
 Mensagens binárias já são separadas do parser JSON, mas recebem um erro
-controlado até o `ServerCore` ser integrado. Portanto, a multiplexação está
-negociada, mas o caminho binário ainda não executa entradas do Sinteract.
+controlado e encerram a conexão até o `ServerCore` ser integrado. Durante a
+migração, frames SVG do runtime reserva ainda são mensagens textuais
+direcionadas ao participante correspondente. Portanto, o contrato de fases e a
+multiplexação já estão implementados, mas o caminho binário ainda não executa
+entradas nem frames do Sinteract.
 
-Cada conexão aceita no máximo 120 eventos textuais de entrada por segundo.
-Ultrapassar esse limite envia um erro e encerra a conexão; mensagens
-administrativas não consomem essa cota. O caminho binário terá seu próprio
-controle quando o `ServerCore` for integrado.
+O servidor associa cada ação ao `player_id` e à geração autenticados pela
+própria conexão. Reconectar com o token substitui a geração anterior. Em
+`Running`, o futuro `ServerCore::Conn` acrescentará a geração específica do
+Sinteract sem permitir que a view escolha seu jogador.
 
 O envio para um cliente tem timeout de dois segundos. Se o receptor do canal
 da sala ficar para trás e perder mensagens, a conexão é encerrada e o número
@@ -119,9 +127,11 @@ define `Player 1..N`, e um mapa interno relaciona esses números aos
 `player_id` do Sarcade.
 
 O WebSocket existente continuará único por participante. Texto continuará
-reservado ao protocolo administrativo do Sarcade; binário será reservado às
-mensagens de view do Sinteract. Quando o `ServerCore` for ligado, o backend
-entregará a ele apenas os binários autenticados da conexão correspondente.
+reservado ao protocolo administrativo enviado pelo servidor; depois de
+`Running`, o cliente enviará somente binário. Quando o `ServerCore` for ligado,
+o backend entregará a ele apenas os binários autenticados da conexão
+correspondente. O frontend usará `View.attach(Link)` para entregar binários à
+view sem tirar do Sarcade a propriedade do socket e das mensagens textuais.
 
 O Sarcade escolherá a frequência de ticks. O `ServerCore` impede acúmulo ao
 aguardar `tickTaken` antes de aceitar outro tick. A frequência inicial ainda
