@@ -87,6 +87,14 @@ O Sinteract é mantido como submódulo. Depois de clonar o Sarcade sem
 git submodule update --init
 ```
 
+Para executar builds `sgleam` pelo protocolo Sinteract, configure o caminho do
+binário nativo atual. Sem essa variável, novas salas usam o runtime reserva
+JSON/SVG, que não executa o código do jogo:
+
+```sh
+SGLEAM_EXECUTABLE=/caminho/para/sgleam
+```
+
 Na primeira vez, prepare as dependências e o target MUSL:
 
 ```sh

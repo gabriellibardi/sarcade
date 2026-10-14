@@ -23,12 +23,12 @@ Ao criar uma sala, o backend seleciona a revisão aprovada mais recente e o
 Uma aprovação posterior no SQLite não altera uma sala existente. O código e
 o token de cada participante não fazem parte de `RoomSnapshot` nem de logs.
 
-O ator do runtime reserva recebe o `RuntimeSpec` e inicia o subprocesso na
-criação da sala. A sala começa em `Preparing` e passa a `Waiting` quando o
-processo e os pipes estão disponíveis. O `Start` envia somente o primeiro
-comando ao processo que já existe; não relança nem rematerializa a fonte. No
-Sinteract, a prontidão local será substituída pelo handshake descrito em
-"Estado alvo".
+O backend escolhe o runtime Sinteract para builds `sgleam` quando
+`SGLEAM_EXECUTABLE` está configurado; sem essa variável, mantém o runtime
+reserva JSON/SVG. Nos dois caminhos, o subprocesso nasce na criação da sala e
+o `Start` reutiliza o processo existente. O runtime reserva passa a `Waiting`
+quando o processo e os pipes estão disponíveis. O caminho Sinteract espera um
+`Hello` válido e confere seus limites antes de liberar a sala.
 
 Builds marcados como `unavailable` e versões explícitas de protocolo
 incompatíveis levam a sala a `Failed` antes do `Start`. Builds de
@@ -77,17 +77,17 @@ conexão é encerrada; `kick`, `promote`, um segundo `start`, entradas JSON e pi
 JSON não pertencem à partida. O keep-alive usa Ping/Pong nativo do WebSocket.
 O servidor ainda pode usar texto para comunicar falha controlada.
 
-Mensagens binárias já são separadas do parser JSON, mas recebem um erro
-controlado e encerram a conexão até o `ServerCore` ser integrado. Durante a
-migração, frames SVG do runtime reserva ainda são mensagens textuais
-direcionadas ao participante correspondente. Portanto, o contrato de fases e a
-multiplexação já estão implementados, mas o caminho binário ainda não executa
-entradas nem frames do Sinteract.
+Nas salas Sinteract, cada binário recebido segue para
+`ServerCore::from_view`, e `ServerCore::next_for` devolve assets e frames
+binários somente à conexão correspondente. Nas salas do runtime reserva, um
+binário produz erro controlado e encerra a conexão; seus frames SVG continuam
+como mensagens textuais durante a migração.
 
 O servidor associa cada ação ao `player_id` e à geração autenticados pela
 própria conexão. Reconectar com o token substitui a geração anterior. Em
-`Running`, o futuro `ServerCore::Conn` acrescentará a geração específica do
-Sinteract sem permitir que a view escolha seu jogador.
+`Running`, `ServerCore::Conn` acrescenta a geração específica do Sinteract sem
+permitir que a view escolha seu jogador. A queda chama `leave(conn)` antes de
+marcar o participante como desconectado.
 
 O envio para um cliente tem timeout de dois segundos. Se o receptor do canal
 da sala ficar para trás e perder mensagens, a conexão é encerrada e o número
@@ -103,7 +103,7 @@ Depois do `Start`, os assentos continuam reservados durante quedas; quando o
 Qualquer reconexão cancela aquela expiração. Se ninguém voltar, a partida e o
 runtime são encerrados.
 
-## Estado alvo com Sinteract
+## Estado restante da migração
 
 Os estados serão:
 
@@ -126,20 +126,17 @@ O clique em iniciar não cria outro processo. A ordem congelada no `Start`
 define `Player 1..N`, e um mapa interno relaciona esses números aos
 `player_id` do Sarcade.
 
-O WebSocket existente continuará único por participante. Texto continuará
-reservado ao protocolo administrativo enviado pelo servidor; depois de
-`Running`, o cliente enviará somente binário. Quando o `ServerCore` for ligado,
-o backend entregará a ele apenas os binários autenticados da conexão
-correspondente. O frontend usará `View.attach(Link)` para entregar binários à
-view sem tirar do Sarcade a propriedade do socket e das mensagens textuais.
+O WebSocket já permanece único por participante. O frontend usa
+`View.attach(Link)` para entregar binários à view sem tirar do Sarcade a
+propriedade do socket e das mensagens textuais. O snapshot expõe se a sala usa
+Sinteract, de modo que uma sala reserva nunca abre o transporte binário.
 
-O Sarcade escolherá a frequência de ticks. O `ServerCore` impede acúmulo ao
+O Sarcade escolhe a frequência de ticks. O `ServerCore` impede acúmulo ao
 aguardar `tickTaken` antes de aceitar outro tick. A frequência inicial ainda
 precisa ser fechada com o orientador e não deve ser codificada como decisão
 definitiva antes disso.
 
-O ator Sinteract e seu subprocesso de conformidade por fd 3/fd 4 já existem no
-backend e validam `Hello`, `Start`, frames individuais, reconexão e
-encerramento. Nesta etapa eles permanecem separados da sala pública: conectar o
-ator ao `Room` e ao WebSocket é a próxima migração, enquanto o runtime reserva
-continua sendo o caminho selecionado pela aplicação.
+O ator Sinteract está ligado à sala pública, ao mesmo WebSocket e ao launcher
+configurável do Sgleam. A migração ainda precisa validar um jogo `mworld` real,
+modelar os estados terminais `Closing`/`Closed` e então remover o runtime
+reserva.

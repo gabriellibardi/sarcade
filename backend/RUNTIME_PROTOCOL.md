@@ -1,26 +1,26 @@
-# Protocolo temporário Sarcade ↔ runtime
+# Protocolos Sarcade ↔ runtime
 
-Este contrato permite integrar o servidor do Sarcade antes de o runtime real
-do Sgleam e o formato do Simage estarem disponíveis. Ele é deliberadamente
-pequeno: eventos entram no processo por `stdin` e imagens SVG saem por
-`stdout`.
+O Sarcade mantém dois caminhos durante a migração. Quando
+`SGLEAM_EXECUTABLE` aponta para um binário e o build da revisão é `sgleam`, o
+backend usa fd 3/fd 4 e o protocolo do Sinteract. Sem essa configuração, o
+runtime reserva usa JSON por `stdin` e imagens SVG por `stdout`. O fallback
+permite desenvolver o fluxo de salas, mas não executa o código aprovado.
 
 ## Processo e ciclo de vida
 
 Cada sala inicia uma sessão e seu subprocesso durante `Preparing`. O runtime
 reserva é considerado pronto depois que o processo e os dois pipes foram
-criados; ele então espera o comando `start` sem produzir frames. Na migração
-para Sinteract, essa confirmação local será substituída pela validação do
-`hello` antes de a sala ficar disponível. No protótipo, o backend executa a si
-próprio como runtime reserva:
+criados; ele então espera o comando `start` sem produzir frames. No caminho
+Sinteract, a sala só fica disponível depois da validação do `Hello`. No
+fallback, o backend executa a si próprio como runtime reserva:
 
 ```text
 backend runtime-stub game-<id>
 ```
 
-No futuro, esse ponto de criação será substituído pela execução normal do
-arquivo materializado no Sgleam, com `SINTERACT_SESSION` e fd 3/fd 4. O Sgleam
-atual não exige um subcomando de servidor; conceitualmente, o launcher fará:
+O launcher Sinteract executa normalmente o arquivo materializado no Sgleam com
+`SINTERACT_SESSION` e fd 3/fd 4. O Sgleam atual não exige um subcomando de
+servidor:
 
 ```text
 sgleam <caminho-do-jogo>
@@ -38,12 +38,11 @@ O runtime reserva ainda não lê esse arquivo: a materialização já valida a
 fronteira que será consumida pelo launcher do Sgleam, enquanto o subprocesso
 temporário continua apenas mostrando o histórico de eventos.
 
-## Ator Sinteract em integração
+## Ator Sinteract
 
-O backend já possui, em paralelo ao runtime reserva, um ator de conformidade
-baseado diretamente em `LobbyCore` e `ServerCore`. Ele ainda não é selecionado
-pelas salas de produção. Seu subprocesso de teste usa a API pública `Session`
-do Sinteract e comprova a fronteira que será usada pelo Sgleam real:
+O ator selecionado por `SGLEAM_EXECUTABLE` usa diretamente `LobbyCore` e
+`ServerCore`. Seu subprocesso de teste usa a API pública `Session` do
+Sinteract e comprova a mesma fronteira usada pelo Sgleam real:
 
 - a engine nasce junto com a sessão e recebe `SINTERACT_SESSION=1`;
 - fd 3 leva o stream servidor → engine e fd 4 leva engine → servidor;
@@ -58,21 +57,19 @@ do Sinteract e comprova a fronteira que será usada pelo Sgleam real:
 - encerramento fecha fd 3, aguarda o filho por dois segundos e então o mata se
   necessário.
 
-O ator usa provisoriamente 60 Hz (`60000` milésimos de hertz) nos testes de
-conformidade. Isso não fecha a decisão de frequência para produção. A próxima
-etapa é colocá-lo atrás da abstração de runtime da sala e então entregar seus
-payloads binários ao WebSocket.
+O ator usa provisoriamente 60 Hz (`60000` milésimos de hertz). Isso não fecha a
+decisão de frequência definitiva. Seus payloads de view passam como frames
+binários do mesmo WebSocket `sarcade.room.v1` que administra o lobby por texto.
 
 O launcher real do ator recebe o executável fixado pelo build de runtime e
 passa como único argumento o caminho do `game.gleam` materializado. A fixture
 usa um subcomando privado diferente apenas para os testes; ela não é escolhida
 silenciosamente quando o executável real está ausente.
 
-Uma tarefa Tokio possui o processo e escreve os comandos. Uma tarefa auxiliar
-mantém a leitura contínua de `stdout`; não há uma thread dedicada por partida.
-`stdin` e `stdout` são pipes anônimos criados com `Stdio::piped()`; mensagens de
-diagnóstico do runtime devem usar somente `stderr`, pois qualquer texto livre
-em `stdout` corrompe o protocolo.
+Uma tarefa Tokio possui o processo, os dois pipes, o relógio e os cores do
+Sinteract; não há uma thread dedicada por partida. fd 3 e fd 4 carregam o
+protocolo. `stdin` e `stdout` não carregam mensagens da sessão e são
+descartados atualmente; `stderr` é herdado para diagnóstico.
 
 ## Framing
 
@@ -127,10 +124,11 @@ Entrada de jogador:
 
 As variantes temporárias de `event` aceitas pelo runtime reserva são `keydown`,
 `keyup`, `paddown` e `padup`. Elas permanecem no protocolo 2 e em seus testes,
-mas o WebSocket `sarcade.room.v1` não produz mais esses comandos: em `Running`,
-entrada de navegador será exclusivamente binária e só voltará a alcançar a
-engine quando o `ServerCore` substituir este protocolo. O cliente nunca escolhe
-em nome de qual jogador uma entrada será executada.
+mas o WebSocket `sarcade.room.v1` não produz mais esses comandos. Em uma sala
+Sinteract, a entrada do navegador é binária e alcança a engine pelo
+`ServerCore`; em uma sala reserva, esses comandos existem apenas nos testes do
+protocolo temporário. O cliente nunca escolhe em nome de qual jogador uma
+entrada será executada.
 
 Outros comandos:
 
