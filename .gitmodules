@@ -1,0 +1,3 @@
+[submodule "sinteract"]
+	path = sinteract
+	url = https://github.com/malbarbo/sinteract.git

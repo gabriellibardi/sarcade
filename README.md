@@ -80,6 +80,13 @@ acesso HTTPS aos serviços do Google.
 
 ### Compilação
 
+O Sinteract é mantido como submódulo. Depois de clonar o Sarcade sem
+`--recurse-submodules`, inicialize-o antes da primeira compilação:
+
+```sh
+git submodule update --init
+```
+
 Na primeira vez, prepare as dependências e o target MUSL:
 
 ```sh
