@@ -1,9 +1,11 @@
 # Protocolos Sarcade ↔ runtime
 
-O Sarcade mantém dois caminhos durante a migração. Quando
-`SGLEAM_EXECUTABLE` aponta para um binário e o build da revisão é `sgleam`, o
-backend usa fd 3/fd 4 e o protocolo do Sinteract. Sem essa configuração, o
-runtime reserva usa JSON por `stdin` e imagens SVG por `stdout`. O fallback
+O Sarcade mantém dois caminhos durante a migração. O build de release incorpora
+um executável Sgleam estático. Na inicialização, o backend materializa uma cópia
+privada e usa fd 3/fd 4 e o protocolo do Sinteract para builds `sgleam`.
+`SGLEAM_EXECUTABLE` substitui o executável incorporado quando aponta para um
+binário externo. Um build de desenvolvimento sem nenhuma das duas formas usa o
+runtime reserva com JSON por `stdin` e imagens SVG por `stdout`. O fallback
 permite desenvolver o fluxo de salas, mas não executa o código aprovado.
 
 ## Processo e ciclo de vida
@@ -62,9 +64,11 @@ decisão de frequência definitiva. Seus payloads de view passam como frames
 binários do mesmo WebSocket `sarcade.room.v1` que administra o lobby por texto.
 
 O launcher real do ator recebe o executável fixado pelo build de runtime e
-passa como único argumento o caminho do `game.gleam` materializado. A fixture
-usa um subcomando privado diferente apenas para os testes; ela não é escolhida
-silenciosamente quando o executável real está ausente.
+passa como único argumento o caminho do `game.gleam` materializado. O executável
+incorporado fica em um diretório aleatório com permissão `0700` durante a vida
+do servidor e é removido ao final. A fixture usa um subcomando privado diferente
+apenas para os testes; ela não é escolhida silenciosamente quando o executável
+real está ausente.
 
 Uma tarefa Tokio possui o processo, os dois pipes, o relógio e os cores do
 Sinteract; não há uma thread dedicada por partida. fd 3 e fd 4 carregam o

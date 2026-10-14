@@ -7,6 +7,7 @@ mod rooms;
 mod routes;
 mod state;
 
+use backend::game_runtime::SgleamExecutable;
 use config::Config;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -42,11 +43,16 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
+    let sgleam_executable =
+        SgleamExecutable::configured(config.sgleam_executable).unwrap_or_else(|error| {
+            tracing::error!(%error, "falha ao preparar runtime Sgleam");
+            std::process::exit(1);
+        });
     let db = db::init(&config.database_url);
     auth::sync_admin_roles(&db, &config.admin_emails)
         .expect("falha ao sincronizar administradores");
     let auth = auth::AuthService::new(config.google_oauth, config.admin_emails);
-    let state = state::AppState::new(db, auth, config.sgleam_executable);
+    let state = state::AppState::new(db, auth, sgleam_executable);
     let app = routes::router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);

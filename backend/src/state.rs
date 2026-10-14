@@ -1,22 +1,22 @@
 use axum::extract::FromRef;
-use std::path::PathBuf;
 
 use crate::{
     auth::AuthService,
     db::Db,
     rooms::{RoomStore, new_store},
 };
+use backend::game_runtime::SgleamExecutable;
 
 #[derive(Clone)]
 pub struct AppState {
     pub auth: AuthService,
     pub db: Db,
     pub rooms: RoomStore,
-    pub sgleam_executable: Option<PathBuf>,
+    pub sgleam_executable: Option<SgleamExecutable>,
 }
 
 impl AppState {
-    pub fn new(db: Db, auth: AuthService, sgleam_executable: Option<PathBuf>) -> Self {
+    pub fn new(db: Db, auth: AuthService, sgleam_executable: Option<SgleamExecutable>) -> Self {
         Self {
             auth,
             db,

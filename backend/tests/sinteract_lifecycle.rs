@@ -1,5 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
+#[cfg(feature = "embedded-sgleam")]
+use backend::game_runtime::SgleamExecutable;
 use backend::game_runtime::{
     RuntimeSpec, SinteractCommandError, SinteractHandle, SinteractOutput, SinteractPlayer,
     SinteractStatus,
@@ -82,6 +84,45 @@ async fn sinteract_session_fails_before_ready_when_the_engine_cannot_start() {
     ));
 }
 
+#[cfg(feature = "embedded-sgleam")]
+#[tokio::test]
+async fn embedded_sgleam_runs_a_multiplayer_world() {
+    let executable = SgleamExecutable::configured(None).unwrap().unwrap();
+    let (runtime, mut statuses) =
+        SinteractHandle::reserve(sgleam_runtime_spec(), executable.path().to_path_buf());
+    let mut changes = runtime.subscribe();
+
+    assert_eq!(next_status(&mut statuses).await, SinteractStatus::Ready);
+
+    runtime
+        .start(vec![
+            SinteractPlayer {
+                id: 41,
+                nickname: "Ana".into(),
+            },
+            SinteractPlayer {
+                id: 73,
+                nickname: "Beto".into(),
+            },
+        ])
+        .await
+        .unwrap();
+
+    let ana = runtime.connect(41).await.unwrap();
+    let beto = runtime.connect(73).await.unwrap();
+    let mut ana_reader = FrameReader::new();
+    let mut beto_reader = FrameReader::new();
+    let ana_frame = next_frame(&runtime, &mut changes, ana).await;
+    let beto_frame = next_frame(&runtime, &mut changes, beto).await;
+    let ana_scene = ana_reader.read(&ana_frame).unwrap().unwrap();
+    let beto_scene = beto_reader.read(&beto_frame).unwrap().unwrap();
+
+    assert_eq!((ana_scene.width(), ana_scene.height()), (320.0, 240.0));
+    assert_eq!((beto_scene.width(), beto_scene.height()), (320.0, 240.0));
+
+    runtime.stop().await.unwrap();
+}
+
 async fn next_frame(
     runtime: &SinteractHandle,
     changes: &mut tokio::sync::watch::Receiver<u64>,
@@ -122,6 +163,35 @@ fn runtime_spec() -> RuntimeSpec {
         "development".into(),
         "pub fn main() { Nil }".into(),
         1,
+        2,
+    )
+}
+
+#[cfg(feature = "embedded-sgleam")]
+fn sgleam_runtime_spec() -> RuntimeSpec {
+    RuntimeSpec::new(
+        7,
+        11,
+        "sgleam-embedded-test".into(),
+        "sgleam".into(),
+        "sinteract-v1".into(),
+        None,
+        None,
+        ".gleam".into(),
+        "development".into(),
+        r#"import sgleam/fill
+import sgleam/image
+import sgleam/mworld
+
+pub fn main() {
+  mworld.create(0, min: 2, max: 2, to_image: fn(_state, _player) {
+    image.rectangle(320, 240, fill.black)
+  })
+  |> mworld.run()
+}
+"#
+        .into(),
+        2,
         2,
     )
 }

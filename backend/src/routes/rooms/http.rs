@@ -38,7 +38,7 @@ pub async fn create_room(
 
     let created = match (&state.sgleam_executable, spec.runtime()) {
         (Some(executable), "sgleam") => {
-            service::create_sinteract_room(&state.rooms, spec, executable.clone())
+            service::create_sinteract_room(&state.rooms, spec, executable.path().to_path_buf())
         }
         _ => service::create_room(&state.rooms, spec),
     }

@@ -80,16 +80,21 @@ acesso HTTPS aos serviços do Google.
 
 ### Compilação
 
-O Sinteract é mantido como submódulo. Depois de clonar o Sarcade sem
-`--recurse-submodules`, inicialize-o antes da primeira compilação:
+O Sinteract e o Sgleam são mantidos como submódulos. Depois de clonar o
+Sarcade sem `--recurse-submodules`, inicialize-os antes da primeira compilação:
 
 ```sh
 git submodule update --init
 ```
 
-Para executar builds `sgleam` pelo protocolo Sinteract, configure o caminho do
-binário nativo atual. Sem essa variável, novas salas usam o runtime reserva
-JSON/SVG, que não executa o código do jogo:
+O build de release compila o Sgleam para MUSL e incorpora o executável ao
+binário do Sarcade. Na inicialização, o backend materializa uma cópia privada
+desse runtime e a reutiliza em todas as partidas. Assim, o servidor não precisa
+de um executável Sgleam instalado à parte.
+
+Em um build de desenvolvimento sem o runtime incorporado, `SGLEAM_EXECUTABLE`
+pode indicar um executável externo. A variável também substitui o runtime
+incorporado quando está definida:
 
 ```sh
 SGLEAM_EXECUTABLE=/caminho/para/sgleam
@@ -108,7 +113,9 @@ make
 ```
 
 Esse comando compila primeiro o frontend e depois executa o build release do backend para
-`x86_64-unknown-linux-musl`. O binário autocontido será criado em
+`x86_64-unknown-linux-musl`. O mesmo target produz o Sgleam incorporado, por
+isso ambos funcionam em distribuições como o NixOS sem um carregador dinâmico
+GNU. O binário autocontido será criado em
 `backend/target/x86_64-unknown-linux-musl/release/backend`.
 
 Use `make check` para executar as verificações do frontend, os testes Rust e o Clippy.
