@@ -3,7 +3,13 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use backend::game_runtime::{RuntimeHandle, RuntimeSpec};
+use backend::game_runtime::{RuntimeHandle, RuntimeSpec, SinteractHandle};
+
+#[derive(Clone)]
+pub enum RoomRuntime {
+    Legacy(RuntimeHandle),
+    Sinteract(SinteractHandle),
+}
 
 #[derive(Clone)]
 pub struct Room {
@@ -18,7 +24,7 @@ pub struct Room {
     pub players: Vec<Player>,
 
     pub tx: broadcast::Sender<ServerMessage>,
-    pub runtime: RuntimeHandle,
+    pub runtime: RoomRuntime,
 
     pub created_at: Instant,
     pub started_at: Option<Instant>,
@@ -50,6 +56,7 @@ pub struct Player {
 pub struct RoomSnapshot {
     pub code: String,
     pub game_id: i64,
+    pub sinteract: bool,
     pub status: RoomStatus,
     pub min_players: i64,
     pub max_players: i64,
@@ -73,6 +80,9 @@ pub enum ClientMessage {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum ServerMessage {
+    #[serde(skip)]
+    SinteractChanged,
+
     #[serde(rename = "joined")]
     Joined {
         player_id: u64,
@@ -90,14 +100,10 @@ pub enum ServerMessage {
     },
 
     #[serde(rename = "room_state")]
-    RoomState {
-        room: RoomSnapshot,
-    },
+    RoomState { room: RoomSnapshot },
 
     #[serde(rename = "room_started")]
-    RoomStarted {
-        room: RoomSnapshot,
-    },
+    RoomStarted { room: RoomSnapshot },
 
     #[serde(rename = "host_changed")]
     HostChanged {
@@ -106,16 +112,10 @@ pub enum ServerMessage {
     },
 
     #[serde(rename = "player_kicked")]
-    PlayerKicked {
-        player_id: u64,
-        room: RoomSnapshot,
-    },
+    PlayerKicked { player_id: u64, room: RoomSnapshot },
 
     #[serde(rename = "player_left")]
-    PlayerLeft {
-        player_id: u64,
-        room: RoomSnapshot,
-    },
+    PlayerLeft { player_id: u64, room: RoomSnapshot },
 
     #[serde(rename = "frame")]
     Frame {
@@ -125,9 +125,7 @@ pub enum ServerMessage {
     },
 
     #[serde(rename = "error")]
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
 impl ServerMessage {

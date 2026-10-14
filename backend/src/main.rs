@@ -46,7 +46,7 @@ async fn main() {
     auth::sync_admin_roles(&db, &config.admin_emails)
         .expect("falha ao sincronizar administradores");
     let auth = auth::AuthService::new(config.google_oauth, config.admin_emails);
-    let state = state::AppState::new(db, auth);
+    let state = state::AppState::new(db, auth, config.sgleam_executable);
     let app = routes::router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);

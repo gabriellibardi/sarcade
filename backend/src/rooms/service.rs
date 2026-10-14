@@ -4,18 +4,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use tokio::sync::broadcast;
 
 use backend::game_runtime::{
-    RuntimeCommand, RuntimeHandle, RuntimeOutput, RuntimePlayer,
-    RuntimeSpec,
+    RuntimeCommand, RuntimeHandle, RuntimeOutput, RuntimePlayer, RuntimeSpec, SinteractHandle,
+    SinteractPlayer, SinteractStatus,
 };
 
 use crate::rooms::{
-    model::{
-        Player, Room, RoomError, RoomSnapshot, RoomStatus, ServerMessage,
-    },
+    model::{Player, Room, RoomError, RoomRuntime, RoomSnapshot, RoomStatus, ServerMessage},
     store::RoomStore,
 };
 
@@ -37,12 +35,28 @@ pub struct JoinRoom {
     pub rx: broadcast::Receiver<ServerMessage>,
 }
 
-pub fn create_room(
-    store: &RoomStore,
-    spec: RuntimeSpec,
-) -> Result<CreatedRoom, RoomError> {
+pub fn create_room(store: &RoomStore, spec: RuntimeSpec) -> Result<CreatedRoom, RoomError> {
     let (runtime, runtime_outputs) = RuntimeHandle::reserve(spec.clone());
     create_room_with_runtime(store, spec, runtime, runtime_outputs)
+}
+
+pub fn create_sinteract_room(
+    store: &RoomStore,
+    spec: RuntimeSpec,
+    executable: std::path::PathBuf,
+) -> Result<CreatedRoom, RoomError> {
+    let (runtime, statuses) = SinteractHandle::reserve(spec.clone(), executable);
+    let changes = runtime.subscribe();
+    let created = insert_room(
+        store,
+        spec,
+        RoomRuntime::Sinteract(runtime),
+        |store, code, tx| {
+            forward_sinteract_statuses(store, code, statuses, tx.clone());
+            forward_sinteract_changes(changes, tx);
+        },
+    )?;
+    Ok(created)
 }
 
 fn create_room_with_runtime(
@@ -50,6 +64,22 @@ fn create_room_with_runtime(
     spec: RuntimeSpec,
     runtime: RuntimeHandle,
     runtime_outputs: tokio::sync::mpsc::Receiver<RuntimeOutput>,
+) -> Result<CreatedRoom, RoomError> {
+    insert_room(
+        store,
+        spec,
+        RoomRuntime::Legacy(runtime),
+        |store, code, tx| {
+            forward_runtime_outputs(store, code, runtime_outputs, tx);
+        },
+    )
+}
+
+fn insert_room(
+    store: &RoomStore,
+    spec: RuntimeSpec,
+    runtime: RoomRuntime,
+    forward: impl FnOnce(RoomStore, String, broadcast::Sender<ServerMessage>),
 ) -> Result<CreatedRoom, RoomError> {
     let mut rooms = lock_rooms(store)?;
 
@@ -79,16 +109,13 @@ fn create_room_with_runtime(
     rooms.insert(code.clone(), room);
     drop(rooms);
 
-    forward_runtime_outputs(store.clone(), code.clone(), runtime_outputs, tx);
+    forward(store.clone(), code.clone(), tx);
     schedule_empty_room_expiration(store.clone(), code.clone(), created_at);
 
     Ok(CreatedRoom { code, host_token })
 }
 
-pub fn get_room_snapshot(
-    store: &RoomStore,
-    code: &str,
-) -> Result<RoomSnapshot, RoomError> {
+pub fn get_room_snapshot(store: &RoomStore, code: &str) -> Result<RoomSnapshot, RoomError> {
     let mut rooms = lock_rooms(store)?;
 
     cleanup_empty_expired_rooms(&mut rooms);
@@ -253,7 +280,11 @@ pub fn leave_room(
         return Ok(());
     };
 
-    let Some(player) = room.players.iter_mut().find(|player| player.id == player_id) else {
+    let Some(player) = room
+        .players
+        .iter_mut()
+        .find(|player| player.id == player_id)
+    else {
         return Ok(());
     };
 
@@ -263,7 +294,9 @@ pub fn leave_room(
 
     if room.status == RoomStatus::Running {
         player.connected = false;
-        let _ = room.runtime.send(RuntimeCommand::PlayerLeft { player_id });
+        if let RoomRuntime::Legacy(runtime) = &room.runtime {
+            let _ = runtime.send(RuntimeCommand::PlayerLeft { player_id });
+        }
 
         let disconnected_at = room
             .players
@@ -282,11 +315,7 @@ pub fn leave_room(
 
         if let Some(disconnected_at) = disconnected_at {
             drop(rooms);
-            schedule_disconnected_room_expiration(
-                store.clone(),
-                code.to_string(),
-                disconnected_at,
-            );
+            schedule_disconnected_room_expiration(store.clone(), code.to_string(), disconnected_at);
         }
         return Ok(());
     }
@@ -302,7 +331,7 @@ pub fn leave_room(
     }
 
     if room.players.is_empty() {
-        let _ = room.runtime.send(RuntimeCommand::Stop);
+        stop_runtime(&room.runtime);
         rooms.remove(code);
         return Ok(());
     }
@@ -341,28 +370,39 @@ pub fn start_room(
         return Err(RoomError::InsufficientPlayers);
     }
 
-    room.runtime
-        .send(RuntimeCommand::Start {
-            game_id: room.spec.game_id(),
-            players: room
-                .players
-                .iter()
-                .map(|player| RuntimePlayer {
-                    id: player.id,
-                    nickname: player.nickname.clone(),
-                })
-                .collect(),
-        })
-        .map_err(|_| RoomError::RuntimeUnavailable)?;
+    match &room.runtime {
+        RoomRuntime::Legacy(runtime) => runtime
+            .send(RuntimeCommand::Start {
+                game_id: room.spec.game_id(),
+                players: room
+                    .players
+                    .iter()
+                    .map(|player| RuntimePlayer {
+                        id: player.id,
+                        nickname: player.nickname.clone(),
+                    })
+                    .collect(),
+            })
+            .map_err(|_| RoomError::RuntimeUnavailable)?,
+        RoomRuntime::Sinteract(runtime) => runtime
+            .try_start(
+                room.players
+                    .iter()
+                    .map(|player| SinteractPlayer {
+                        id: player.id,
+                        nickname: player.nickname.clone(),
+                    })
+                    .collect(),
+            )
+            .map_err(|_| RoomError::RuntimeUnavailable)?,
+    }
 
     room.status = RoomStatus::Running;
     room.started_at = Some(Instant::now());
 
     let snapshot = room_snapshot(room);
 
-    let _ = room.tx.send(ServerMessage::RoomStarted {
-        room: snapshot,
-    });
+    let _ = room.tx.send(ServerMessage::RoomStarted { room: snapshot });
 
     Ok(())
 }
@@ -406,9 +446,7 @@ pub fn kick_player(
         room: snapshot.clone(),
     });
 
-    let _ = room.tx.send(ServerMessage::RoomState {
-        room: snapshot,
-    });
+    let _ = room.tx.send(ServerMessage::RoomState { room: snapshot });
 
     Ok(())
 }
@@ -448,9 +486,7 @@ pub fn promote_host(
         room: snapshot.clone(),
     });
 
-    let _ = room.tx.send(ServerMessage::RoomState {
-        room: snapshot,
-    });
+    let _ = room.tx.send(ServerMessage::RoomState { room: snapshot });
 
     Ok(())
 }
@@ -536,10 +572,99 @@ fn forward_runtime_outputs(
     });
 }
 
-fn first_frame_metrics(
+fn forward_sinteract_statuses(
+    store: RoomStore,
+    code: String,
+    mut statuses: tokio::sync::mpsc::Receiver<SinteractStatus>,
+    tx: broadcast::Sender<ServerMessage>,
+) {
+    tokio::spawn(async move {
+        while let Some(status) = statuses.recv().await {
+            let message = match status {
+                SinteractStatus::Ready => {
+                    let snapshot = {
+                        let Ok(mut rooms) = store.lock() else {
+                            return;
+                        };
+                        let Some(room) = rooms.get_mut(&code) else {
+                            return;
+                        };
+                        if room.status != RoomStatus::Preparing {
+                            continue;
+                        }
+                        room.status = RoomStatus::Waiting;
+                        room_snapshot(room)
+                    };
+                    let _ = tx.send(ServerMessage::RoomState { room: snapshot });
+                    continue;
+                }
+                SinteractStatus::Ended => ServerMessage::Error {
+                    message: "A engine da partida foi encerrada".into(),
+                },
+                SinteractStatus::Failed(error) => {
+                    let snapshot = {
+                        let Ok(mut rooms) = store.lock() else {
+                            return;
+                        };
+                        let Some(room) = rooms.get_mut(&code) else {
+                            return;
+                        };
+                        room.status = RoomStatus::Failed;
+                        room_snapshot(room)
+                    };
+                    tracing::error!(room = %code, %error, "runtime Sinteract falhou");
+                    let _ = tx.send(ServerMessage::RoomState { room: snapshot });
+                    ServerMessage::Error {
+                        message: "Runtime da partida foi encerrado".into(),
+                    }
+                }
+            };
+            let _ = tx.send(message);
+        }
+    });
+}
+
+fn forward_sinteract_changes(
+    mut changes: tokio::sync::watch::Receiver<u64>,
+    tx: broadcast::Sender<ServerMessage>,
+) {
+    tokio::spawn(async move {
+        while changes.changed().await.is_ok() {
+            let _ = tx.send(ServerMessage::SinteractChanged);
+        }
+    });
+}
+
+pub fn sinteract_runtime(
     store: &RoomStore,
     code: &str,
-) -> Option<(Duration, i64, String)> {
+    player_id: u64,
+    connection_generation: u64,
+) -> Result<Option<SinteractHandle>, RoomError> {
+    let rooms = lock_rooms(store)?;
+    let room = rooms.get(code).ok_or(RoomError::NotFound)?;
+    ensure_current_connection(room, player_id, connection_generation)?;
+    Ok(match &room.runtime {
+        RoomRuntime::Legacy(_) => None,
+        RoomRuntime::Sinteract(runtime) => Some(runtime.clone()),
+    })
+}
+
+fn stop_runtime(runtime: &RoomRuntime) {
+    match runtime {
+        RoomRuntime::Legacy(runtime) => {
+            let _ = runtime.send(RuntimeCommand::Stop);
+        }
+        RoomRuntime::Sinteract(runtime) => {
+            let runtime = runtime.clone();
+            tokio::spawn(async move {
+                let _ = runtime.stop().await;
+            });
+        }
+    }
+}
+
+fn first_frame_metrics(store: &RoomStore, code: &str) -> Option<(Duration, i64, String)> {
     let rooms = store.lock().ok()?;
     let room = rooms.get(code)?;
     let started_at = room.started_at?;
@@ -581,6 +706,7 @@ fn room_snapshot(room: &Room) -> RoomSnapshot {
     RoomSnapshot {
         code: room.code.clone(),
         game_id: room.spec.game_id(),
+        sinteract: matches!(room.runtime, RoomRuntime::Sinteract(_)),
         status: room.status.clone(),
         min_players: room.spec.min_players(),
         max_players: room.spec.max_players(),
@@ -601,8 +727,7 @@ fn cleanup_empty_expired_rooms(rooms: &mut HashMap<String, Room>) {
     let now = Instant::now();
 
     rooms.retain(|_, room| {
-        !room.players.is_empty()
-            || now.duration_since(room.created_at) < EMPTY_ROOM_TTL
+        !room.players.is_empty() || now.duration_since(room.created_at) < EMPTY_ROOM_TTL
     });
 }
 
@@ -628,24 +753,20 @@ async fn expire_empty_room_after(
             tracing::error!(room = %code, "mutex de salas envenenado durante expiração");
             return;
         };
-        let should_remove = rooms.get(&code).is_some_and(|room| {
-            room.created_at == created_at && room.players.is_empty()
-        });
+        let should_remove = rooms
+            .get(&code)
+            .is_some_and(|room| room.created_at == created_at && room.players.is_empty());
 
         should_remove.then(|| rooms.remove(&code)).flatten()
     };
 
     if let Some(room) = expired {
-        let _ = room.runtime.send(RuntimeCommand::Stop);
+        stop_runtime(&room.runtime);
         tracing::info!(room = %code, "sala vazia expirada e runtime encerrado");
     }
 }
 
-fn schedule_disconnected_room_expiration(
-    store: RoomStore,
-    code: String,
-    disconnected_at: Instant,
-) {
+fn schedule_disconnected_room_expiration(store: RoomStore, code: String, disconnected_at: Instant) {
     tokio::spawn(expire_disconnected_room_after(
         store,
         code,
@@ -677,7 +798,7 @@ async fn expire_disconnected_room_after(
     };
 
     if let Some(room) = expired {
-        let _ = room.runtime.send(RuntimeCommand::Stop);
+        stop_runtime(&room.runtime);
         tracing::info!(
             room = %code,
             "partida sem conexões expirou e o runtime foi encerrado"
@@ -711,10 +832,10 @@ mod tests {
 
     use super::{
         CreatedRoom, create_room_with_runtime, expire_disconnected_room_after,
-        expire_empty_room_after, join_room, kick_player, leave_room, promote_host,
-        start_room, validate_nickname,
+        expire_empty_room_after, join_room, kick_player, leave_room, promote_host, start_room,
+        validate_nickname,
     };
-    use crate::rooms::{new_store, RoomError, RoomStatus, ServerMessage};
+    use crate::rooms::{RoomError, RoomStatus, ServerMessage, new_store};
 
     #[test]
     fn nickname_is_trimmed_and_limited_on_the_server() {
@@ -847,14 +968,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let guest = join_room(
-            &store,
-            &created.code,
-            "Guest".into(),
-            None,
-            None,
-        )
-        .unwrap();
+        let guest = join_room(&store, &created.code, "Guest".into(), None, None).unwrap();
 
         {
             let mut rooms = store.lock().unwrap();
@@ -906,13 +1020,7 @@ mod tests {
     async fn runtime_ready_transitions_the_room_from_preparing_to_waiting() {
         let store = new_store();
         let (runtime, runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(
-            &store,
-            runtime_spec(),
-            runtime,
-            outputs,
-        )
-        .unwrap();
+        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
         let mut events = {
             let rooms = store.lock().unwrap();
             let room = rooms.get(&created.code).unwrap();
@@ -941,13 +1049,7 @@ mod tests {
     async fn start_is_rejected_until_the_runtime_is_ready() {
         let store = new_store();
         let (runtime, _runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(
-            &store,
-            runtime_spec(),
-            runtime,
-            outputs,
-        )
-        .unwrap();
+        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
         let joined = join_room(
             &store,
             &created.code,
@@ -971,13 +1073,7 @@ mod tests {
     async fn runtime_failure_marks_the_room_and_blocks_new_players() {
         let store = new_store();
         let (runtime, runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(
-            &store,
-            runtime_spec(),
-            runtime,
-            outputs,
-        )
-        .unwrap();
+        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
         let mut events = {
             let rooms = store.lock().unwrap();
             rooms.get(&created.code).unwrap().tx.subscribe()
@@ -1007,19 +1103,8 @@ mod tests {
     async fn empty_room_expiration_removes_the_room_and_its_runtime() {
         let store = new_store();
         let (runtime, _runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(
-            &store,
-            runtime_spec(),
-            runtime,
-            outputs,
-        )
-        .unwrap();
-        let created_at = store
-            .lock()
-            .unwrap()
-            .get(&created.code)
-            .unwrap()
-            .created_at;
+        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
+        let created_at = store.lock().unwrap().get(&created.code).unwrap().created_at;
 
         expire_empty_room_after(
             store.clone(),
@@ -1092,10 +1177,7 @@ mod tests {
         )
     }
 
-    fn create_test_room(
-        store: &crate::rooms::RoomStore,
-        spec: RuntimeSpec,
-    ) -> CreatedRoom {
+    fn create_test_room(store: &crate::rooms::RoomStore, spec: RuntimeSpec) -> CreatedRoom {
         let (runtime, outputs) = RuntimeHandle::simulated_ready();
         create_room_with_runtime(store, spec, runtime, outputs).unwrap()
     }

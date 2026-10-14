@@ -2,22 +2,17 @@ use std::time::Duration;
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
         Path, Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use futures_util::{
-    stream::{SplitSink},
-    SinkExt, StreamExt,
-};
+use backend::game_runtime::{SinteractConn, SinteractHandle, SinteractOutput};
+use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::Deserialize;
 
-use crate::rooms::{
-    service,
-    ClientMessage, RoomError, RoomStatus, RoomStore, ServerMessage,
-};
+use crate::rooms::{ClientMessage, RoomError, RoomStatus, RoomStore, ServerMessage, service};
 
 const ROOM_WS_SUBPROTOCOL: &str = "sarcade.room.v1";
 const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
@@ -27,6 +22,19 @@ const CLIENT_SEND_TIMEOUT: Duration = Duration::from_secs(2);
 enum SocketPhase {
     Lobby,
     Running,
+}
+
+struct ActiveSinteract {
+    runtime: SinteractHandle,
+    conn: SinteractConn,
+}
+
+#[derive(Clone, Copy)]
+struct RoomConnection<'a> {
+    rooms: &'a RoomStore,
+    code: &'a str,
+    player_id: u64,
+    generation: u64,
 }
 
 impl SocketPhase {
@@ -92,13 +100,7 @@ async fn handle_room_socket(
     host_token: Option<String>,
     player_token: Option<String>,
 ) {
-    let join = match service::join_room(
-        &rooms,
-        &code,
-        nickname,
-        host_token,
-        player_token,
-    ) {
+    let join = match service::join_room(&rooms, &code, nickname, host_token, player_token) {
         Ok(join) => join,
         Err(error) => {
             let message = ServerMessage::Error {
@@ -117,8 +119,31 @@ async fn handle_room_socket(
 
     let player_id = join.player_id;
     let connection_generation = join.connection_generation;
+    let connection = RoomConnection {
+        rooms: &rooms,
+        code: &code,
+        player_id,
+        generation: connection_generation,
+    };
     let mut phase = SocketPhase::from_room_status(&join.room.status);
     let mut rx = join.rx;
+    let mut sinteract = if phase == SocketPhase::Running {
+        match connect_sinteract(&rooms, &code, player_id, connection_generation).await {
+            Ok(session) => session,
+            Err(error) => {
+                let message = ServerMessage::Error {
+                    message: error.message().to_string(),
+                };
+                let _ = socket
+                    .send(Message::Text(to_ws_text(&message).into()))
+                    .await;
+                let _ = service::leave_room(&rooms, &code, player_id, connection_generation);
+                return;
+            }
+        }
+    } else {
+        None
+    };
 
     let joined_message = ServerMessage::Joined {
         player_id,
@@ -134,8 +159,7 @@ async fn handle_room_socket(
         )
         .await,
         Ok(Ok(()))
-    )
-    {
+    ) {
         let _ = service::leave_room(&rooms, &code, player_id, connection_generation);
         return;
     }
@@ -153,11 +177,9 @@ async fn handle_room_socket(
 
                 let should_continue = handle_incoming_message(
                     &mut sender,
-                    &rooms,
-                    &code,
-                    player_id,
-                    connection_generation,
+                    connection,
                     phase,
+                    sinteract.as_ref(),
                     message,
                 ).await;
 
@@ -185,7 +207,23 @@ async fn handle_room_socket(
                     continue;
                 }
 
+                if matches!(&message, ServerMessage::SinteractChanged) {
+                    if let Some(session) = &sinteract
+                        && !drain_sinteract(&mut sender, session).await
+                    {
+                        break;
+                    }
+                    continue;
+                }
+
                 if matches!(&message, ServerMessage::RoomStarted { .. }) {
+                    match connect_sinteract(&rooms, &code, player_id, connection_generation).await {
+                        Ok(session) => sinteract = session,
+                        Err(error) => {
+                            let _ = send_error(&mut sender, error.message()).await;
+                            break;
+                        }
+                    }
                     phase = SocketPhase::Running;
                 }
 
@@ -213,16 +251,17 @@ async fn handle_room_socket(
         }
     }
 
+    if let Some(session) = sinteract {
+        let _ = session.runtime.leave(session.conn).await;
+    }
     let _ = service::leave_room(&rooms, &code, player_id, connection_generation);
 }
 
 async fn handle_incoming_message(
     sender: &mut SplitSink<WebSocket, Message>,
-    rooms: &RoomStore,
-    code: &str,
-    player_id: u64,
-    connection_generation: u64,
+    connection: RoomConnection<'_>,
     phase: SocketPhase,
+    sinteract: Option<&ActiveSinteract>,
     message: Message,
 ) -> bool {
     match message {
@@ -246,19 +285,32 @@ async fn handle_incoming_message(
             };
 
             let result = match client_message {
-                ClientMessage::Start => {
-                    service::start_room(rooms, code, player_id, connection_generation)
-                }
+                ClientMessage::Start => service::start_room(
+                    connection.rooms,
+                    connection.code,
+                    connection.player_id,
+                    connection.generation,
+                ),
 
                 ClientMessage::Kick {
                     player_id: target_id,
-                } => service::kick_player(rooms, code, player_id, connection_generation, target_id),
+                } => service::kick_player(
+                    connection.rooms,
+                    connection.code,
+                    connection.player_id,
+                    connection.generation,
+                    target_id,
+                ),
 
                 ClientMessage::Promote {
                     player_id: target_id,
-                } => {
-                    service::promote_host(rooms, code, player_id, connection_generation, target_id)
-                }
+                } => service::promote_host(
+                    connection.rooms,
+                    connection.code,
+                    connection.player_id,
+                    connection.generation,
+                    target_id,
+                ),
             };
 
             match result {
@@ -271,9 +323,7 @@ async fn handle_incoming_message(
             }
         }
 
-        Message::Ping(payload) => {
-            send_with_timeout(sender, Message::Pong(payload)).await
-        }
+        Message::Ping(payload) => send_with_timeout(sender, Message::Pong(payload)).await,
 
         Message::Pong(_) => true,
 
@@ -288,21 +338,65 @@ async fn handle_incoming_message(
             false
         }
 
-        Message::Binary(_) => {
-            let _ = send_error(
-                sender,
-                "A integração binária com o Sinteract ainda não está disponível",
-            )
-            .await;
-            false
+        Message::Binary(payload) => {
+            let Some(session) = sinteract else {
+                let _ = send_error(
+                    sender,
+                    "Esta sala ainda usa o runtime reserva sem entrada binária",
+                )
+                .await;
+                return false;
+            };
+            match session
+                .runtime
+                .from_view(session.conn, payload.to_vec())
+                .await
+            {
+                Ok(()) => true,
+                Err(_) => {
+                    let _ = send_error(sender, "Mensagem Sinteract inválida").await;
+                    false
+                }
+            }
         }
     }
 }
 
-async fn send_error(
+async fn connect_sinteract(
+    rooms: &RoomStore,
+    code: &str,
+    player_id: u64,
+    connection_generation: u64,
+) -> Result<Option<ActiveSinteract>, RoomError> {
+    let Some(runtime) = service::sinteract_runtime(rooms, code, player_id, connection_generation)?
+    else {
+        return Ok(None);
+    };
+    let conn = runtime
+        .connect(player_id)
+        .await
+        .map_err(|_| RoomError::RuntimeUnavailable)?;
+    Ok(Some(ActiveSinteract { runtime, conn }))
+}
+
+async fn drain_sinteract(
     sender: &mut SplitSink<WebSocket, Message>,
-    message: &str,
+    session: &ActiveSinteract,
 ) -> bool {
+    loop {
+        match session.runtime.next_for(session.conn).await {
+            Ok(SinteractOutput::Send(payload)) => {
+                if !send_with_timeout(sender, Message::Binary(payload.to_vec().into())).await {
+                    return false;
+                }
+            }
+            Ok(SinteractOutput::Idle) => return true,
+            Ok(SinteractOutput::Gone) | Err(_) => return false,
+        }
+    }
+}
+
+async fn send_error(sender: &mut SplitSink<WebSocket, Message>, message: &str) -> bool {
     let error = ServerMessage::Error {
         message: message.to_string(),
     };
@@ -317,10 +411,7 @@ async fn send_server_message(
     send_with_timeout(sender, Message::Text(to_ws_text(message).into())).await
 }
 
-async fn send_with_timeout(
-    sender: &mut SplitSink<WebSocket, Message>,
-    message: Message,
-) -> bool {
+async fn send_with_timeout(sender: &mut SplitSink<WebSocket, Message>, message: Message) -> bool {
     matches!(
         tokio::time::timeout(CLIENT_SEND_TIMEOUT, sender.send(message)).await,
         Ok(Ok(()))

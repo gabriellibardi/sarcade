@@ -1,4 +1,5 @@
 use std::env;
+use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct GoogleOAuthConfig {
@@ -13,6 +14,7 @@ pub struct Config {
     pub database_url: String,
     pub google_oauth: Option<GoogleOAuthConfig>,
     pub admin_emails: Vec<String>,
+    pub sgleam_executable: Option<PathBuf>,
 }
 
 impl Config {
@@ -27,6 +29,7 @@ impl Config {
         let public_base_url =
             non_empty_env("PUBLIC_BASE_URL").map(|value| value.trim_end_matches('/').to_string());
         let admin_emails = comma_separated_env("ADMIN_EMAILS");
+        let sgleam_executable = non_empty_env("SGLEAM_EXECUTABLE").map(PathBuf::from);
 
         let client_id = non_empty_env("GOOGLE_CLIENT_ID");
         let client_secret = non_empty_env("GOOGLE_CLIENT_SECRET");
@@ -64,6 +67,7 @@ impl Config {
             database_url,
             google_oauth,
             admin_emails,
+            sgleam_executable,
         }
     }
 }

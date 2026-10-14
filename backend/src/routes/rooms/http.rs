@@ -11,6 +11,7 @@ use backend::game_runtime::RuntimeSpec;
 use crate::{
     db::Db,
     rooms::{RoomError, RoomSnapshot, RoomStore, service},
+    state::AppState,
 };
 
 #[derive(Deserialize)]
@@ -28,15 +29,20 @@ pub struct CreateRoomResponse {
 }
 
 pub async fn create_room(
-    State(db): State<Db>,
-    State(rooms): State<RoomStore>,
+    State(state): State<AppState>,
     Json(payload): Json<CreateRoomRequest>,
 ) -> Result<Json<CreateRoomResponse>, (StatusCode, String)> {
     let nickname = service::validate_nickname(&payload.nickname).map_err(room_error_to_http)?;
 
-    let spec = get_runtime_spec(&db, payload.game_id)?;
+    let spec = get_runtime_spec(&state.db, payload.game_id)?;
 
-    let created = service::create_room(&rooms, spec).map_err(room_error_to_http)?;
+    let created = match (&state.sgleam_executable, spec.runtime()) {
+        (Some(executable), "sgleam") => {
+            service::create_sinteract_room(&state.rooms, spec, executable.clone())
+        }
+        _ => service::create_room(&state.rooms, spec),
+    }
+    .map_err(room_error_to_http)?;
 
     Ok(Json(CreateRoomResponse {
         code: created.code,

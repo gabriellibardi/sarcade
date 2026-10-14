@@ -13,7 +13,7 @@ use sinteract::{
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::{mpsc, oneshot, watch},
+    sync::{mpsc, mpsc::error::TrySendError, oneshot, watch},
 };
 
 use super::{MaterializedSource, RuntimeSpec};
@@ -106,6 +106,18 @@ impl SinteractHandle {
         request(&self.commands, |reply| Command::Start { players, reply }).await
     }
 
+    /// Queue the start without waiting for pipe I/O. Commands queued after it
+    /// observe the resulting `ServerCore` because the actor is serial.
+    pub fn try_start(&self, players: Vec<SinteractPlayer>) -> Result<(), SinteractCommandError> {
+        let (reply, _ignored) = oneshot::channel();
+        self.commands
+            .try_send(Command::Start { players, reply })
+            .map_err(|error| match error {
+                TrySendError::Full(_) => SinteractCommandError::Busy,
+                TrySendError::Closed(_) => SinteractCommandError::Closed,
+            })
+    }
+
     pub async fn connect(&self, player_id: u64) -> Result<SinteractConn, SinteractCommandError> {
         request(&self.commands, |reply| Command::Connect {
             player_id,
@@ -145,6 +157,7 @@ impl SinteractHandle {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SinteractCommandError {
+    Busy,
     Closed,
     NotReady,
     AlreadyStarted,
@@ -158,6 +171,7 @@ pub enum SinteractCommandError {
 impl std::fmt::Display for SinteractCommandError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
+            Self::Busy => "the Sinteract command queue is full",
             Self::Closed => "the Sinteract session is closed",
             Self::NotReady => "the Sinteract engine has not sent its hello",
             Self::AlreadyStarted => "the Sinteract session has already started",
