@@ -38,6 +38,36 @@ O runtime reserva ainda não lê esse arquivo: a materialização já valida a
 fronteira que será consumida pelo launcher do Sgleam, enquanto o subprocesso
 temporário continua apenas mostrando o histórico de eventos.
 
+## Ator Sinteract em integração
+
+O backend já possui, em paralelo ao runtime reserva, um ator de conformidade
+baseado diretamente em `LobbyCore` e `ServerCore`. Ele ainda não é selecionado
+pelas salas de produção. Seu subprocesso de teste usa a API pública `Session`
+do Sinteract e comprova a fronteira que será usada pelo Sgleam real:
+
+- a engine nasce junto com a sessão e recebe `SINTERACT_SESSION=1`;
+- fd 3 leva o stream servidor → engine e fd 4 leva engine → servidor;
+- a sala só fica pronta após um `Hello` completo;
+- os limites do `Hello` devem ser exatamente os da revisão aprovada;
+- o `Start` reaproveita o mesmo processo e congela a ordem dos jogadores;
+- um único ator possui `LobbyCore`/`ServerCore`, pipes, ticks e conexões;
+- a fila de comandos é limitada e nenhuma espera de pipe ocorre sob o mutex
+  global das salas;
+- reconectar um assento invalida a geração Sinteract anterior;
+- queda de uma view chama `leave`, liberando suas entradas pressionadas;
+- encerramento fecha fd 3, aguarda o filho por dois segundos e então o mata se
+  necessário.
+
+O ator usa provisoriamente 60 Hz (`60000` milésimos de hertz) nos testes de
+conformidade. Isso não fecha a decisão de frequência para produção. A próxima
+etapa é colocá-lo atrás da abstração de runtime da sala e então entregar seus
+payloads binários ao WebSocket.
+
+O launcher real do ator recebe o executável fixado pelo build de runtime e
+passa como único argumento o caminho do `game.gleam` materializado. A fixture
+usa um subcomando privado diferente apenas para os testes; ela não é escolhida
+silenciosamente quando o executável real está ausente.
+
 Uma tarefa Tokio possui o processo e escreve os comandos. Uma tarefa auxiliar
 mantém a leitura contínua de `stdout`; não há uma thread dedicada por partida.
 `stdin` e `stdout` são pipes anônimos criados com `Stdio::piped()`; mensagens de

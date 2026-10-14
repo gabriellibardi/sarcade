@@ -23,3 +23,6 @@ sha2 = "0.10"
 sinteract = { path = "../sinteract", default-features = false }
 time = "0.3"
 url = "2"
+
+[target.'cfg(unix)'.dependencies]
+command-fds = "0.3"

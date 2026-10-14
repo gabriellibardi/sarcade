@@ -13,12 +13,24 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[tokio::main]
 async fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("runtime-stub") {
-        if let Err(error) = backend::game_runtime::process::run_stub_from_args(args.next()).await {
-            eprintln!("runtime reserva falhou: {error}");
-            std::process::exit(1);
+    match args.next().as_deref() {
+        Some("runtime-stub") => {
+            if let Err(error) =
+                backend::game_runtime::process::run_stub_from_args(args.next()).await
+            {
+                eprintln!("runtime reserva falhou: {error}");
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
+        Some("sinteract-runtime-stub") => {
+            if let Err(error) = backend::game_runtime::sinteract_process::run_stub_from_fds() {
+                eprintln!("runtime Sinteract de teste falhou: {error}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        _ => {}
     }
 
     tracing_subscriber::registry()

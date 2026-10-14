@@ -137,3 +137,9 @@ O Sarcade escolherá a frequência de ticks. O `ServerCore` impede acúmulo ao
 aguardar `tickTaken` antes de aceitar outro tick. A frequência inicial ainda
 precisa ser fechada com o orientador e não deve ser codificada como decisão
 definitiva antes disso.
+
+O ator Sinteract e seu subprocesso de conformidade por fd 3/fd 4 já existem no
+backend e validam `Hello`, `Start`, frames individuais, reconexão e
+encerramento. Nesta etapa eles permanecem separados da sala pública: conectar o
+ator ao `Room` e ao WebSocket é a próxima migração, enquanto o runtime reserva
+continua sendo o caminho selecionado pela aplicação.
