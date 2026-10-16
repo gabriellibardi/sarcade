@@ -117,8 +117,18 @@ async fn embedded_sgleam_runs_a_multiplayer_world() {
     let ana_scene = ana_reader.read(&ana_frame).unwrap().unwrap();
     let beto_scene = beto_reader.read(&beto_frame).unwrap().unwrap();
 
-    assert_eq!((ana_scene.width(), ana_scene.height()), (320.0, 240.0));
-    assert_eq!((beto_scene.width(), beto_scene.height()), (320.0, 240.0));
+    assert_eq!(ana_scene.height(), 240.0);
+    assert_eq!(beto_scene.height(), 241.0);
+    let ana_width = ana_scene.width();
+    let beto_width = beto_scene.width();
+
+    let next_ana_frame = next_frame(&runtime, &mut changes, ana).await;
+    let next_beto_frame = next_frame(&runtime, &mut changes, beto).await;
+    let next_ana_scene = ana_reader.read(&next_ana_frame).unwrap().unwrap();
+    let next_beto_scene = beto_reader.read(&next_beto_frame).unwrap().unwrap();
+
+    assert!(next_ana_scene.width() > ana_width);
+    assert!(next_beto_scene.width() > beto_width);
 
     runtime.stop().await.unwrap();
 }
@@ -184,9 +194,15 @@ import sgleam/image
 import sgleam/mworld
 
 pub fn main() {
-  mworld.create(0, min: 2, max: 2, to_image: fn(_state, _player) {
-    image.rectangle(320, 240, fill.black)
+  mworld.create(0, min: 2, max: 2, to_image: fn(state, player) {
+    image.rectangle(
+      320 + state,
+      239 + mworld.player_index(player),
+      fill.black,
+    )
   })
+  |> mworld.tick_rate(20)
+  |> mworld.on_tick(fn(state) { state + 1 })
   |> mworld.run()
 }
 "#
