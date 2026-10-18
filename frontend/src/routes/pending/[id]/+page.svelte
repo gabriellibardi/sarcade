@@ -83,6 +83,53 @@
 		}
 	}
 
+	async function editRevision() {
+		if (!game || isReviewing) return;
+		isReviewing = true;
+		actionError = '';
+		try {
+			const editable = await apiRequest<{ revision_id: number }>(
+				`/api/revisions/${game.revision_id}/edit`,
+				{ method: 'POST' }
+			);
+			await goto(resolve('/my-games/revisions/[id]/edit', { id: String(editable.revision_id) }));
+		} catch (editError) {
+			actionError = errorMessage(editError, 'Não foi possível preparar uma nova versão.');
+			console.error(editError);
+		} finally {
+			isReviewing = false;
+		}
+	}
+
+	async function testRevision() {
+		if (!game || isReviewing) return;
+		isReviewing = true;
+		actionError = '';
+		try {
+			const nickname = get(authState).user?.name.slice(0, 30) || 'Revisor';
+			const result = await apiRequest<{
+				code: string;
+				host_token: string;
+				invite_token: string;
+			}>(`/api/revisions/${game.revision_id}/rooms`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ nickname })
+			});
+			await goto(
+				resolve(
+					`/rooms/[code]?nickname=${encodeURIComponent(nickname)}&host_token=${encodeURIComponent(result.host_token)}&invite_token=${encodeURIComponent(result.invite_token)}`,
+					{ code: result.code }
+				)
+			);
+		} catch (testError) {
+			actionError = errorMessage(testError, 'Não foi possível criar a sala de teste.');
+			console.error(testError);
+		} finally {
+			isReviewing = false;
+		}
+	}
+
 	async function initializePage() {
 		await loadAuth();
 
@@ -139,7 +186,7 @@
 				<section class="surface-card overflow-hidden">
 					{#if game.has_thumbnail}
 						<img
-							src={`/api/games/${game.id}/thumbnail`}
+							src={`/api/revisions/${game.revision_id}/thumbnail`}
 							alt={`Capa de ${game.title}`}
 							class="max-h-80 w-full object-cover"
 						/>
@@ -203,6 +250,14 @@
 
 				<section class="surface-card p-5">
 					<h2 class="font-black text-slate-950">Decisão</h2>
+					<button
+						type="button"
+						onclick={() => void testRevision()}
+						disabled={isReviewing}
+						class="secondary-button mt-4 w-full"
+					>
+						Testar multiplayer
+					</button>
 					{#if game.status !== 'pending'}
 						<p class="mt-3 text-sm leading-6 text-slate-600">Esta revisão já foi analisada.</p>
 						{#if game.review_message}
@@ -210,6 +265,14 @@
 								<Alert tone="info" title="Justificativa" message={game.review_message} />
 							</div>
 						{/if}
+						<button
+							type="button"
+							onclick={() => void editRevision()}
+							disabled={isReviewing}
+							class="secondary-button mt-4 w-full"
+						>
+							Criar versão editável
+						</button>
 					{:else}
 						<label for="reviewMessage" class="form-label mt-4">Justificativa da rejeição</label>
 						<textarea

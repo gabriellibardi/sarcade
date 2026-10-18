@@ -33,6 +33,9 @@
 			<nav aria-label="Navegação principal" class="flex flex-wrap items-center gap-1">
 				<a href={resolve('/catalog')} class="nav-link">Jogos</a>
 				<a href={resolve('/submit')} class="nav-link">Publicar</a>
+				{#if $authState.user}
+					<a href={resolve('/my-games')} class="nav-link">Meus jogos</a>
+				{/if}
 				{#if $authState.user?.is_admin}
 					<a href={resolve('/pending')} class="nav-link">Revisões</a>
 				{/if}

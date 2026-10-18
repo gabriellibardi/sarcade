@@ -11,11 +11,14 @@ export type RoomSnapshot = {
 	code: string;
 	game_id: number;
 	sinteract: boolean;
+	is_preview: boolean;
 	status: RoomStatus;
 	min_players: number;
 	max_players: number;
 	players: Player[];
 	can_start: boolean;
+	can_join: boolean;
+	join_error: string | null;
 };
 
 export type RoomServerMessage =

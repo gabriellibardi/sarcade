@@ -8,6 +8,7 @@
 	import Alert from '$lib/components/ui/Alert.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import type { PublishedGameDetails } from '$lib/types/game';
+	import type { RoomSnapshot } from '$lib/types/room';
 	import { formatDate, playerCountLabel } from '$lib/utils/format';
 
 	type CreateRoomResponse = { code: string; host_token: string };
@@ -20,6 +21,10 @@
 	let notFound = false;
 	let loadError = '';
 	let createError = '';
+	let roomCode = '';
+	let roomCodeError = '';
+	let isCheckingRoom = false;
+	let isArchiving = false;
 
 	const gameId = Number(page.params.id);
 
@@ -82,6 +87,51 @@
 			console.error(error);
 		} finally {
 			isCreating = false;
+		}
+	}
+
+	async function joinWithCode() {
+		if (!game || isCheckingRoom) return;
+		roomCode = roomCode.trim().toUpperCase();
+		roomCodeError = '';
+		if (!roomCode) {
+			roomCodeError = 'Informe o código da sala.';
+			return;
+		}
+
+		isCheckingRoom = true;
+		try {
+			const room = await apiRequest<RoomSnapshot>(`/api/rooms/${encodeURIComponent(roomCode)}`);
+			if (room.game_id !== game.id || room.is_preview) {
+				roomCodeError = 'Esta sala pertence a outro jogo.';
+				return;
+			}
+			if (!room.can_join) {
+				roomCodeError = room.join_error ?? 'Não é possível entrar nesta sala.';
+				return;
+			}
+			await goto(resolve('/rooms/[code]', { code: room.code }));
+		} catch (roomError) {
+			roomCodeError = errorMessage(roomError, 'Não foi possível consultar esta sala.');
+			console.error(roomError);
+		} finally {
+			isCheckingRoom = false;
+		}
+	}
+
+	async function archiveGame() {
+		if (!game || isArchiving) return;
+		if (!window.confirm(`Arquivar “${game.title}”? Ele deixará de aparecer no catálogo.`)) return;
+		isArchiving = true;
+		createError = '';
+		try {
+			await apiRequest(`/api/games/${game.id}`, { method: 'DELETE' });
+			await goto(resolve('/catalog'));
+		} catch (archiveError) {
+			createError = errorMessage(archiveError, 'Não foi possível arquivar o jogo.');
+			console.error(archiveError);
+		} finally {
+			isArchiving = false;
 		}
 	}
 
@@ -202,6 +252,22 @@
 			</article>
 
 			<aside class="arcade-panel-blue p-6 lg:sticky lg:top-24">
+				{#if $authState.user?.is_admin}
+					<div class="mb-6 flex flex-wrap gap-2 border-b-2 border-indigo-200 pb-6">
+						<a
+							href={resolve('/pending/[id]', { id: String(game.revision_id) })}
+							class="secondary-button px-4 py-2 text-sm">Ver código e editar</a
+						>
+						<button
+							type="button"
+							onclick={() => void archiveGame()}
+							disabled={isArchiving}
+							class="ghost-button px-4 py-2 text-sm text-red-600"
+						>
+							{isArchiving ? 'Arquivando...' : 'Arquivar jogo'}
+						</button>
+					</div>
+				{/if}
 				<p class="eyebrow">Multiplayer</p>
 				<h2 class="display-title mt-3 text-2xl text-slate-950">Criar uma sala</h2>
 				<p class="mt-2 text-sm leading-6 text-slate-600">
@@ -241,6 +307,33 @@
 				{#if createError}
 					<div class="mt-4"><Alert tone="error" message={createError} /></div>
 				{/if}
+
+				<div class="mt-6 border-t-2 border-indigo-200 pt-6">
+					<h3 class="font-black text-slate-950">Já recebeu um código?</h3>
+					<form
+						onsubmit={(event) => {
+							event.preventDefault();
+							void joinWithCode();
+						}}
+						class="mt-3 flex gap-2"
+					>
+						<label class="flex-1">
+							<span class="sr-only">Código da sala</span>
+							<input
+								bind:value={roomCode}
+								maxlength="12"
+								placeholder="ABC123"
+								class="form-control font-mono uppercase"
+							/>
+						</label>
+						<button type="submit" disabled={isCheckingRoom} class="secondary-button px-4">
+							{isCheckingRoom ? 'Consultando...' : 'Entrar'}
+						</button>
+					</form>
+					{#if roomCodeError}
+						<div class="mt-3"><Alert tone="error" message={roomCodeError} /></div>
+					{/if}
+				</div>
 			</aside>
 		</div>
 	{/if}
