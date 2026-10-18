@@ -98,10 +98,14 @@
 				<div>
 					<dt class="text-slate-500">Jogo</dt>
 					<dd>
-						<a
-							href={resolve('/games/[id]', { id: String(room.game_id) })}
-							class="font-bold text-white hover:underline">Jogo #{room.game_id}</a
-						>
+						{#if room.is_preview}
+							<span class="font-bold text-white">Revisão em teste</span>
+						{:else}
+							<a
+								href={resolve('/games/[id]', { id: String(room.game_id) })}
+								class="font-bold text-white hover:underline">Jogo #{room.game_id}</a
+							>
+						{/if}
 					</dd>
 				</div>
 				<div>

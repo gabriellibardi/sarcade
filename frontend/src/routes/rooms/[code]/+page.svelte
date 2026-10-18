@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { onMount, tick } from 'svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import { apiRequest, errorMessage } from '$lib/api';
 	import GameControls from '$lib/components/room/GameControls.svelte';
 	import GameViewport from '$lib/components/room/GameViewport.svelte';
 	import RoomJoinForm from '$lib/components/room/RoomJoinForm.svelte';
@@ -19,11 +20,13 @@
 	import { View as SinteractView, type Link as SinteractLink } from '$sinteract/view';
 
 	let room: RoomSnapshot | null = null;
+	let roomPreview: RoomSnapshot | null = null;
 	let socket: WebSocket | null = null;
 
 	let nickname = '';
 	let hostToken = '';
 	let playerToken = '';
+	let inviteToken = '';
 
 	let myPlayerId: number | null = null;
 	let amHost = false;
@@ -35,6 +38,8 @@
 	let sinteractView: SinteractView | null = null;
 	let sinteractLink: SinteractLink | null = null;
 	let activatingSinteract = false;
+	let isCheckingRoom = true;
+	let entryBlocked = false;
 
 	const WS_CONNECTING = 0;
 	const WS_OPEN = 1;
@@ -46,7 +51,7 @@
 
 	$: isConnected = connectionState === WS_OPEN;
 	$: isConnecting = connectionState === WS_CONNECTING;
-	$: canShowJoinForm = connectionState === WS_CLOSED;
+	$: canShowJoinForm = connectionState === WS_CLOSED && !isCheckingRoom && !entryBlocked;
 	$: canStart = Boolean(room?.can_start && amHost && room.status === 'waiting');
 	$: frameUrl = frameSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(frameSvg)}` : '';
 	$: if (room?.status === 'running' && room.sinteract && gameCanvas && isConnected) {
@@ -74,6 +79,9 @@
 		if (playerToken) {
 			params.set('player_token', playerToken);
 		}
+		if (inviteToken) {
+			params.set('invite_token', inviteToken);
+		}
 
 		return `${protocol}//${window.location.host}/api/rooms/${code}/ws?${params.toString()}`;
 	}
@@ -88,6 +96,11 @@
 		}
 
 		nickname = nickname.trim();
+		if (!playerToken && roomPreview && !roomPreview.can_join) {
+			entryBlocked = true;
+			error = roomPreview.join_error ?? 'Não é possível entrar nesta sala.';
+			return;
+		}
 		closeSocket();
 
 		const nextSocket = new WebSocket(getWsUrl(), 'sarcade.room.v1');
@@ -169,7 +182,6 @@
 			case 'room_started':
 				room = data.room;
 				refreshHostStatus();
-				message = 'Partida iniciada.';
 				void activateSinteract();
 				break;
 
@@ -383,15 +395,17 @@
 
 	async function leaveRoom() {
 		const gameId = room?.game_id;
+		const wasPreview = room?.is_preview;
 
 		closeSocket();
 		clearParticipation();
 		nickname = '';
 		hostToken = '';
+		inviteToken = '';
 		message = '';
 		error = '';
 
-		if (gameId) {
+		if (gameId && !wasPreview) {
 			await goto(resolve('/games/[id]', { id: String(gameId) }), {
 				replaceState: true
 			});
@@ -401,10 +415,11 @@
 	}
 
 	function copyRoomUrl() {
-		const url = new URL(resolve('/rooms/[code]', { code }), window.location.origin).toString();
+		const url = new URL(resolve('/rooms/[code]', { code }), window.location.origin);
+		if (inviteToken) url.searchParams.set('invite_token', inviteToken);
 
 		navigator.clipboard
-			.writeText(url)
+			.writeText(url.toString())
 			.then(() => {
 				message = 'Link da sala copiado.';
 			})
@@ -413,16 +428,44 @@
 			});
 	}
 
-	onMount(() => {
+	async function inspectRoom() {
+		isCheckingRoom = true;
+		entryBlocked = false;
+		error = '';
+		const params = new SvelteURLSearchParams();
+		if (inviteToken) params.set('invite_token', inviteToken);
+		if (playerToken) params.set('player_token', playerToken);
+		const query = params.size ? `?${params.toString()}` : '';
+
+		try {
+			roomPreview = await apiRequest<RoomSnapshot>(`/api/rooms/${code}${query}`);
+			if (!playerToken && !roomPreview.can_join) {
+				entryBlocked = true;
+				error = roomPreview.join_error ?? 'Não é possível entrar nesta sala.';
+			}
+		} catch (loadError) {
+			entryBlocked = true;
+			error = errorMessage(loadError, 'Não foi possível consultar esta sala.');
+			console.error(loadError);
+		} finally {
+			isCheckingRoom = false;
+		}
+	}
+
+	async function initializeRoom() {
 		const params = new SvelteURLSearchParams(window.location.search);
 
 		nickname = params.get('nickname') ?? '';
 		hostToken = params.get('host_token') ?? '';
+		inviteToken = params.get('invite_token') ?? '';
 		restoreParticipation();
+		await inspectRoom();
 
-		if (nickname) {
-			connect();
-		}
+		if (nickname && !entryBlocked) connect();
+	}
+
+	onMount(() => {
+		void initializeRoom();
 
 		return () => {
 			closeSocket();
@@ -435,10 +478,16 @@
 	<meta name="description" content="Lobby e execução de uma partida multiplayer no Sarcade." />
 </svelte:head>
 
-<main class="page-shell max-w-5xl">
+<main class="page-shell max-w-7xl">
 	<RoomToolbar {code} {isConnected} onCopy={copyRoomUrl} onLeave={() => void leaveRoom()} />
 
 	<div class="mt-7 space-y-5">
+		{#if isCheckingRoom}
+			<div
+				class="surface-card h-36 animate-pulse"
+				aria-label="Consultando disponibilidade da sala"
+			></div>
+		{/if}
 		{#if error}
 			<Alert tone="error" message={error} />
 		{/if}
@@ -452,10 +501,8 @@
 		{/if}
 
 		{#if room?.status === 'running'}
-			<div
-				class="mx-auto flex min-h-[calc(100vh-13rem)] w-full max-w-4xl flex-col justify-center gap-5"
-			>
-				<div class="relative">
+			<div class="mx-auto flex min-h-[calc(100vh-11rem)] w-full max-w-6xl flex-col justify-center">
+				<div>
 					<GameViewport {frameUrl} sinteract={room.sinteract} bind:canvas={gameCanvas} />
 					<GameControls
 						enabled={Boolean(sinteractLink)}
@@ -466,7 +513,7 @@
 			</div>
 		{/if}
 
-		{#if room}
+		{#if room && room.status !== 'running'}
 			<RoomLobby
 				{room}
 				{myPlayerId}
