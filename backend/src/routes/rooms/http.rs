@@ -114,7 +114,7 @@ fn executable_for(state: &AppState, spec: &RuntimeSpec) -> Result<PathBuf, (Stat
     {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Este build de runtime não é compatível com o executor instalado".into(),
+            "A versão selecionada não é compatível com o ambiente de execução instalado".into(),
         ));
     }
     if spec.max_players() > i64::from(MAX_PLAYERS_PER_GAME) {
@@ -130,7 +130,7 @@ fn executable_for(state: &AppState, spec: &RuntimeSpec) -> Result<PathBuf, (Stat
         .map(|executable| executable.path().to_path_buf())
         .ok_or((
             StatusCode::SERVICE_UNAVAILABLE,
-            "Runtime indisponível para criar a sala".into(),
+            "Ambiente de execução indisponível para criar a sala".into(),
         ))
 }
 

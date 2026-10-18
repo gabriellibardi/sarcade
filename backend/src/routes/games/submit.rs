@@ -106,7 +106,7 @@ pub async fn submit_game(
         .filter(|value| !value.is_empty())
         .ok_or((
             StatusCode::BAD_REQUEST,
-            "Build de runtime é obrigatório".to_string(),
+            "Selecione uma linguagem e uma versão".to_string(),
         ))?;
 
     let inspected = inspect_source_code(

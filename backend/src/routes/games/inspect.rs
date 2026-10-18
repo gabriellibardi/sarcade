@@ -78,7 +78,7 @@ pub async fn inspect_source(
         .filter(|value| !value.is_empty())
         .ok_or((
             StatusCode::BAD_REQUEST,
-            "Build de runtime é obrigatório".to_string(),
+            "Selecione uma linguagem e uma versão".to_string(),
         ))?;
     let source_code = source_code
         .map(|value| value.trim().to_string())
@@ -135,14 +135,14 @@ pub(crate) async fn inspect_source_code(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .ok_or((
             StatusCode::BAD_REQUEST,
-            "Build de runtime inválido ou indisponível".to_string(),
+            "Linguagem ou versão inválida ou indisponível".to_string(),
         ))?
     };
 
     if runtime_build_id != SGLEAM_BUILD_ID {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Build de runtime inválido ou indisponível".into(),
+            "Linguagem ou versão inválida ou indisponível".into(),
         ));
     }
 
@@ -155,13 +155,13 @@ pub(crate) async fn inspect_source_code(
     if runtime != "sgleam" {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Este runtime ainda não oferece detecção automática de jogadores".into(),
+            "Esta linguagem ainda não oferece detecção automática de jogadores".into(),
         ));
     }
 
     let executable = state.sgleam_executable.as_ref().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        "Runtime indisponível para analisar o jogo".to_string(),
+        "Ambiente de execução indisponível para analisar o jogo".to_string(),
     ))?;
     let _runtime_permit = state.reserve_runtime_process().map_err(|_| {
         (

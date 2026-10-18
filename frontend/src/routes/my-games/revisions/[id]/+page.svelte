@@ -187,7 +187,7 @@
 						disabled={isActing}
 						class="primary-button"
 					>
-						{isActing ? 'Preparando...' : 'Testar multiplayer'}
+						{isActing ? 'Preparando...' : 'Testar jogo'}
 					</button>
 					{#if revision.status === 'draft'}
 						<a

@@ -218,11 +218,11 @@
 					<h2 class="font-black text-slate-950">Metadados</h2>
 					<dl class="mt-4 space-y-3 text-sm">
 						<div>
-							<dt class="text-slate-500">Runtime</dt>
+							<dt class="text-slate-500">Linguagem e versão</dt>
 							<dd class="font-bold text-slate-800">{game.runtime_name} · {game.runtime_version}</dd>
 						</div>
 						<div>
-							<dt class="text-slate-500">Build</dt>
+							<dt class="text-slate-500">Identificador da versão</dt>
 							<dd class="font-mono text-xs break-all text-slate-700">{game.runtime_build_id}</dd>
 						</div>
 						<div>
@@ -256,7 +256,7 @@
 						disabled={isReviewing}
 						class="secondary-button mt-4 w-full"
 					>
-						Testar multiplayer
+						Testar jogo
 					</button>
 					{#if game.status !== 'pending'}
 						<p class="mt-3 text-sm leading-6 text-slate-600">Esta revisão já foi analisada.</p>

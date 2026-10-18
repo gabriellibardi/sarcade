@@ -17,7 +17,7 @@
 		<div
 			class="font-mono text-[10px] leading-5 tracking-wider text-slate-500 uppercase sm:text-right"
 		>
-			<p>Linguagens educacionais + multiplayer</p>
+			<p>Crie, compartilhe e jogue</p>
 			<p>UEM · Trabalho de Conclusão de Curso</p>
 		</div>
 	</div>

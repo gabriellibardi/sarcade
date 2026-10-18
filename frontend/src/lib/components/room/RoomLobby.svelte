@@ -129,9 +129,9 @@
 			{#if !amHost}
 				<p class="mt-2 text-xs leading-5 text-slate-400">Somente o host pode iniciar.</p>
 			{:else if room.status === 'preparing'}
-				<p class="mt-2 text-xs leading-5 text-slate-400">Preparando o runtime da sala.</p>
+				<p class="mt-2 text-xs leading-5 text-slate-400">Preparando o jogo.</p>
 			{:else if room.status === 'failed'}
-				<p class="mt-2 text-xs leading-5 text-red-300">O runtime da sala foi encerrado.</p>
+				<p class="mt-2 text-xs leading-5 text-red-300">Não foi possível preparar o jogo.</p>
 			{:else if room.players.length < room.min_players}
 				<p class="mt-2 text-xs leading-5 text-slate-400">Aguardando mais participantes.</p>
 			{/if}

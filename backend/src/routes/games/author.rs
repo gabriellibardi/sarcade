@@ -269,7 +269,7 @@ pub async fn update_draft(
         .filter(|value| !value.is_empty())
         .ok_or((
             StatusCode::BAD_REQUEST,
-            "Build de runtime é obrigatório".to_string(),
+            "Selecione uma linguagem e uma versão".to_string(),
         ))?;
 
     ensure_editable(&state, id, user.id, user.is_admin)?;

@@ -350,7 +350,7 @@ async fn handle_incoming_message(
 
         Message::Binary(payload) => {
             let Some(session) = sinteract else {
-                let _ = send_error(sender, "Runtime da partida indisponível").await;
+                let _ = send_error(sender, "Ambiente da partida indisponível").await;
                 return false;
             };
             match session

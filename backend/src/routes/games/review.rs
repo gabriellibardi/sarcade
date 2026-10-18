@@ -56,7 +56,7 @@ pub async fn approve_revision(
     if affected == 0 {
         return Err((
             StatusCode::CONFLICT,
-            "Revisão não encontrada, já analisada, acima dos limites ou com runtime indisponível"
+            "Revisão não encontrada, já analisada, acima dos limites ou com ambiente de execução indisponível"
                 .into(),
         ));
     }

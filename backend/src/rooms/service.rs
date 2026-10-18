@@ -570,7 +570,7 @@ fn forward_sinteract_statuses(
                         let _ = tx.send(ServerMessage::RoomState { room: snapshot });
                     }
                     ServerMessage::Error {
-                        message: "Runtime da partida foi encerrado".into(),
+                        message: "A partida foi encerrada".into(),
                     }
                 }
             };

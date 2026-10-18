@@ -467,7 +467,7 @@
 
 <svelte:head>
 	<title>Sala {code} — Sarcade</title>
-	<meta name="description" content="Lobby e execução de uma partida multiplayer no Sarcade." />
+	<meta name="description" content="Lobby e execução de uma partida no Sarcade." />
 </svelte:head>
 
 <main class="page-shell max-w-7xl">

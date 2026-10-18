@@ -77,9 +77,12 @@ mas `PUBLIC_BASE_URL` estiver ausente, o login fica desabilitado em vez de usar 
   abrir salas. Nesta versão, o pipeline implementado é o do Sgleam; adicionar
   outra linguagem exige integrar seu executor ao mesmo contrato de runtime,
   sem alterar o fluxo da interface.
+- A interface obtém linguagens e versões disponíveis pela API e não fixa nomes
+  de engines na navegação ou nas ações. Esses nomes aparecem apenas quando
+  identificam a linguagem e a versão escolhidas para um jogo.
 
 A página da sala consulta o servidor antes de pedir o nickname. Assim, convite inválido, sala cheia,
-partida já iniciada ou runtime indisponível são mostrados assim que o link é aberto. A validação é
+partida já iniciada ou ambiente de execução indisponível são mostrados assim que o link é aberto. A validação é
 repetida no WebSocket para cobrir corridas entre a consulta e a entrada.
 
 Se o host sair do lobby, o participante que entrou há mais tempo assume automaticamente e pode
