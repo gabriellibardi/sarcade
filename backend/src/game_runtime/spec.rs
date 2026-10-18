@@ -1,6 +1,8 @@
 use sha2::{Digest, Sha256};
 use std::fmt::{self, Write};
 
+pub const MAX_PLAYERS_PER_GAME: u32 = 16;
+
 /// Immutable description of the approved game revision selected for a room.
 ///
 /// This type deliberately does not implement `Debug` or `Serialize`: it owns

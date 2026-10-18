@@ -1,6 +1,9 @@
 use axum::{
     Router,
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, Request},
+    http::{HeaderMap, HeaderName, HeaderValue},
+    middleware::{self, Next},
+    response::Response,
     routing::{get, patch, post},
 };
 
@@ -11,7 +14,6 @@ mod games;
 mod rooms;
 mod runtimes;
 mod users;
-mod ws;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -55,12 +57,59 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/rooms/{code}", get(rooms::get_room))
         .route("/api/rooms/{code}/ws", get(rooms::room_ws))
-        .route("/api/echo", get(ws::echo_handler))
         .fallback(assets::serve)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(middleware::from_fn(security_headers))
         .with_state(state)
 }
 
 async fn health() -> &'static str {
     "ok"
+}
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    add_security_headers(response.headers_mut());
+    response
+}
+
+fn add_security_headers(headers: &mut HeaderMap) {
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::HeaderMap;
+
+    use super::add_security_headers;
+
+    #[test]
+    fn adds_defensive_headers_to_responses() {
+        let mut headers = HeaderMap::new();
+
+        add_security_headers(&mut headers);
+
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["x-frame-options"], "DENY");
+        assert_eq!(headers["referrer-policy"], "same-origin");
+        assert_eq!(
+            headers["permissions-policy"],
+            "camera=(), microphone=(), geolocation=()"
+        );
+    }
 }

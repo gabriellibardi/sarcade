@@ -1,156 +1,102 @@
 # Ciclo de vida de salas e partidas
 
-Este documento registra o contrato do Sarcade durante a migração do runtime
-reserva para o Sinteract. O código e os testes continuam sendo a fonte de
-verdade. As seções abaixo distinguem o que já está implementado do estado
-alvo, para não descrever trabalho futuro como concluído.
+Este documento registra o contrato implementado no Sarcade. O código e os
+testes permanecem como fonte de verdade.
 
-## Implementado
+## Criação e runtime
 
-### Criação da sala
+Ao criar uma sala pública, o backend seleciona a revisão aprovada mais recente
+cujo build de runtime esteja disponível. Uma sala privada de teste fixa a
+revisão exata escolhida pelo autor ou por um administrador, inclusive quando
+ela ainda é rascunho, está pendente ou foi rejeitada. O `RuntimeSpec` imutável
+mantido em memória contém revisão, build, versão, código-fonte, SHA-256 e
+limites de jogadores; uma aprovação posterior não altera a sala existente.
 
-Ao criar uma sala, o backend seleciona a revisão aprovada mais recente e o
-`runtime_build` associado na mesma consulta. Esses dados formam um
-`RuntimeSpec` imutável, mantido apenas na memória da sala:
+Toda sala usa uma sessão Sinteract. O processo nasce durante `Preparing`, e a
+sala só muda para `Waiting` depois que um `Hello` válido declarar exatamente
+os limites registrados na revisão. Não há runtime reserva. Build indisponível,
+executor ausente, protocolo incompatível ou falha de inicialização impedem a
+criação ou levam a sala a `Failed`.
 
-- jogo e revisão aprovada;
-- identificador, implementação, versão, commit, versão de protocolo e estado
-  do build de runtime;
-- extensão e código-fonte aprovado;
-- SHA-256 do código-fonte;
-- limites mínimo e máximo de jogadores.
+Partidas e inspeções competem pelo mesmo limite de subprocessos. Uma sala
+mantém sua reserva enquanto o processo está ativo e a libera ao terminar,
+falhar ou ser removida. Se a capacidade estiver esgotada, o servidor recusa a
+criação antes de executar código. Uma engine que encerra inesperadamente muda
+a sala para `Failed`; ela não permanece falsamente em `Running`.
 
-Uma aprovação posterior no SQLite não altera uma sala existente. O código e
-o token de cada participante não fazem parte de `RoomSnapshot` nem de logs.
+O backend materializa o código em um diretório privado por sessão e nunca usa
+um nome ou caminho fornecido pelo autor no comando. A inspeção de uma
+submissão usa outra sessão, limitada ao `Hello`, sem admitir jogadores nem
+iniciar o laço do jogo.
 
-O backend escolhe o runtime Sinteract para builds `sgleam` quando possui um
-executável Sgleam: o build de release incorpora um, enquanto um build de
-desenvolvimento pode recebê-lo por `SGLEAM_EXECUTABLE`. Sem nenhuma das duas
-formas, mantém o runtime reserva JSON/SVG. Nos dois caminhos, o subprocesso
-nasce na criação da sala e o `Start` reutiliza o processo existente. O runtime
-reserva passa a `Waiting` quando o processo e os pipes estão disponíveis. O
-caminho Sinteract espera um `Hello` válido e confere seus limites antes de
-liberar a sala.
+## Estados
 
-Uma sala pública fixa a revisão aprovada mais recente. Uma sala privada de
-teste fixa a revisão exata escolhida pelo autor ou por um administrador, mesmo
-quando ela está em rascunho, pendente ou rejeitada. O servidor gera um token de
-convite aleatório para a sala privada e o exige tanto na consulta HTTP quanto
-na primeira conexão WebSocket. Depois da entrada, o token individual de
-reconexão também autoriza a consulta e recupera somente o assento já existente.
-
-Builds marcados como `unavailable` e versões explícitas de protocolo
-incompatíveis levam a sala a `Failed` antes do `Start`. Builds de
-desenvolvimento antigos, cuja versão é `NULL`, continuam aceitos durante a
-migração.
-
-Ao lançar um runtime, o backend cria um diretório privado e exclusivo,
-materializa `game.<extensão>` e confere seu SHA-256 contra o `RuntimeSpec`.
-Nenhum nome ou caminho fornecido pelo autor entra diretamente no comando. O
-diretório permanece vivo pela duração do subprocesso e é removido ao final.
-
-### Lobby, assentos e reconexão
-
-Antes de mostrar o formulário de entrada, o frontend consulta um snapshot que
-informa `can_join` e `join_error`. Sala cheia, partida iniciada e runtime
-indisponível são apresentados nesse momento; a entrada WebSocket repete todas
-as validações porque a situação pode mudar depois da consulta.
-
-Enquanto a sala está em `waiting`, uma conexão sem `player_token` cria um
-participante. O servidor atribui o `player_id`; o cliente nunca escolhe esse
-valor. A capacidade vem do `RuntimeSpec`.
-
-Cada participante recebe um token aleatório de reconexão. O frontend o guarda
-em `sessionStorage`, com escopo por sala, e o envia somente para recuperar o
-mesmo assento. Nickname não autentica uma reconexão.
-
-Cada conexão de um assento possui uma geração crescente. Ao reconectar:
-
-1. o token recupera o mesmo `player_id` e o mesmo papel de host;
-2. a geração anterior recebe `connection_replaced` e é encerrada;
-3. qualquer comando atrasado daquela geração é recusado no serviço da sala;
-4. a nova conexão recebe o estado atual.
-
-No lobby, uma desconexão remove o participante. Depois do `Start`, a lista é
-fixa: uma desconexão apenas marca o participante como desconectado e informa o
-runtime para liberar entradas pressionadas. Não é possível entrar com um novo
-nickname nem expulsar um assento durante a partida.
-
-### WebSocket atual
-
-O endpoint de sala exige o subprotocolo `sarcade.room.v1` e limita mensagens e
-frames recebidos a 64 KiB, o mesmo limite das mensagens de view do Sinteract.
-O protocolo da conexão reserva texto ao JSON administrativo do Sarcade e
-binário a um payload completo Sinteract v1, sem envelope adicional. O nome do
-subprotocolo é do Sarcade porque a conexão não é uma sessão Sinteract pura.
-
-Antes de `Running`, o cliente pode enviar por texto somente `start`, `kick` e
-`promote`; binários são recusados. O `Start` mantém aberto o mesmo WebSocket e
-muda sua fase. Em `Running`, todo texto enviado pelo cliente é recusado e a
-conexão é encerrada; `kick`, `promote`, um segundo `start`, entradas JSON e ping
-JSON não pertencem à partida. O keep-alive usa Ping/Pong nativo do WebSocket.
-O servidor ainda pode usar texto para comunicar falha controlada.
-
-Nas salas Sinteract, cada binário recebido segue para
-`ServerCore::from_view`, e `ServerCore::next_for` devolve assets e frames
-binários somente à conexão correspondente. Nas salas do runtime reserva, um
-binário produz erro controlado e encerra a conexão; seus frames SVG continuam
-como mensagens textuais durante a migração.
-
-O servidor associa cada ação ao `player_id` e à geração autenticados pela
-própria conexão. Reconectar com o token substitui a geração anterior. Em
-`Running`, `ServerCore::Conn` acrescenta a geração específica do Sinteract sem
-permitir que a view escolha seu jogador. A queda chama `leave(conn)` antes de
-marcar o participante como desconectado.
-
-O envio para um cliente tem timeout de dois segundos. Se o receptor do canal
-da sala ficar para trás e perder mensagens, a conexão é encerrada e o número
-descartado é registrado com sala e jogador; ela nunca bloqueia os outros
-participantes. O backend também registra o tempo de preparação do processo e,
-sem incluir código ou tokens, o intervalo entre `Start` e o primeiro frame.
-
-Uma sala que continua vazia por dez minutos é removida por uma tarefa própria,
-mesmo que não chegue outra requisição para disparar limpeza oportunista. A
-remoção envia `stop`, fecha a fila e libera processo e diretório temporário.
-Depois do `Start`, os assentos continuam reservados durante quedas; quando o
-último participante desconecta, começa uma janela de reconexão de dez minutos.
-Qualquer reconexão cancela aquela expiração. Se ninguém voltar, a partida e o
-runtime são encerrados.
-
-## Estado restante da migração
-
-Os estados serão:
+Os estados expostos são:
 
 ```text
-Preparing -> Waiting -> Running -> Closing -> Closed
-     |          |          |
-     +----------+----------+----> Failed
+Preparing ──Hello válido──> Waiting ──Start──> Running
+    │                           │                 │
+    └──────────── falha ────────┴─────────────────┘──> Failed
 ```
 
-- `Preparing`: o processo já nasceu e o servidor aguarda um `Hello` válido;
-- `Waiting`: os limites do `Hello` foram validados contra o `RuntimeSpec`;
-- `Running`: o host congelou a ordem dos jogadores e o `LobbyCore` tornou-se
-  `ServerCore`;
-- `Closing`: o servidor fechou a entrada da engine e aguarda sua saída por um
-  prazo limitado;
-- `Closed` e `Failed`: estados terminais, com causa observável e sem processo
-  órfão.
+O encerramento e a remoção são operações internas, não estados expostos no
+snapshot. O clique em iniciar reaproveita o processo preparado; não cria outro
+runtime. A ordem congelada no `Start` define `Player 1..N`, e um mapa interno
+relaciona essas posições aos `player_id` estáveis do Sarcade.
 
-O clique em iniciar não cria outro processo. A ordem congelada no `Start`
-define `Player 1..N`, e um mapa interno relaciona esses números aos
-`player_id` do Sarcade.
+## Convite, lobby e reconexão
 
-O WebSocket já permanece único por participante. O frontend usa
-`View.attach(Link)` para entregar binários à view sem tirar do Sarcade a
-propriedade do socket e das mensagens textuais. O snapshot expõe se a sala usa
-Sinteract, de modo que uma sala reserva nunca abre o transporte binário.
+Salas privadas recebem um token de convite aleatório, exigido na consulta HTTP
+e na primeira conexão WebSocket. Depois da entrada, o token individual de
+reconexão autoriza apenas a recuperação do próprio assento.
 
-O Sarcade escolhe a frequência de ticks. O `ServerCore` impede acúmulo ao
-aguardar `tickTaken` antes de aceitar outro tick. A frequência inicial ainda
-precisa ser fechada com o orientador e não deve ser codificada como decisão
-definitiva antes disso.
+Antes de mostrar o formulário, o frontend consulta `can_join` e `join_error`.
+Convite inválido, sala cheia, partida iniciada ou runtime indisponível aparecem
+ao abrir o link. O WebSocket repete todas as validações para cobrir mudanças
+entre a consulta e a entrada.
 
-O ator Sinteract está ligado à sala pública, ao mesmo WebSocket e ao launcher
-configurável do Sgleam. A migração ainda precisa validar um jogo `mworld` real,
-modelar os estados terminais `Closing`/`Closed` e então remover o runtime
-reserva.
+No lobby, uma nova conexão cria o participante e recebe do servidor um
+`player_id`, um token de reconexão e uma geração. Ao reconectar:
+
+1. o token recupera o mesmo assento e papel de host;
+2. a geração anterior recebe `connection_replaced` e é encerrada;
+3. comandos atrasados daquela geração são recusados;
+4. a nova conexão recebe o estado atual.
+
+Se o host sair antes do `Start`, o participante que entrou primeiro é
+promovido. Os `player_id` são crescentes, tornando a escolha determinística.
+Se ninguém restar, a sala e seu runtime são removidos.
+
+Depois do `Start`, os assentos ficam fixos. Uma queda apenas marca o jogador
+como desconectado e chama `leave` para liberar entradas pressionadas; não é
+possível ocupar aquela vaga com outro nickname. Se todos desconectarem, começa
+uma janela de dez minutos. Uma reconexão cancela a expiração; caso contrário,
+a partida é encerrada.
+
+## WebSocket da sala
+
+O endpoint exige o subprotocolo `sarcade.room.v1` e limita mensagens e frames
+recebidos a 64 KiB. Antes de `Running`, o cliente envia por texto apenas
+`start`, `kick` e `promote`; binários são recusados. Durante `Running`, texto do
+cliente é recusado e binários são payloads Sinteract completos, sem envelope
+adicional do Sarcade. Ping/Pong nativo mantém a conexão viva.
+
+O backend associa cada ação ao jogador e à geração autenticados pela conexão.
+`ServerCore::from_view` recebe as entradas, e `ServerCore::next_for` entrega
+assets e quadros somente ao destinatário correto. O frontend usa a view do
+Sinteract sobre o canvas, sem conhecer a linguagem que implementa o jogo.
+
+O envio possui timeout de dois segundos. Cliente lento ou receptor que perdeu
+mensagens é desconectado sem bloquear outros participantes. Uma sala vazia em
+`Preparing` ou `Waiting` expira após dez minutos e encerra o processo.
+
+## Ticks
+
+O Sarcade oferece ao `ServerCore` oportunidades de apresentação a 60 Hz, com
+política de descartar atrasos. O Sinteract impede que uma view escolha outro
+jogador e coordena o fluxo de quadros.
+
+Em jogos Sgleam, `world` e `mworld` conservam seu próprio relógio lógico no
+`tick_rate` do jogo. O `Tick` recebido pelo `Stage` apresenta a cena mais
+recente e não chama `on_tick` diretamente. Cada passo lógico tem delta fixo
+implícito de `1 / tick_rate`; atrasos grandes não geram rajadas de recuperação.

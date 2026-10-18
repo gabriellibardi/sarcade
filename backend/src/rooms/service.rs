@@ -5,15 +5,12 @@ use std::{
 };
 
 use rand::{Rng, distributions::Alphanumeric};
-use tokio::sync::broadcast;
+use tokio::sync::{OwnedSemaphorePermit, broadcast};
 
-use backend::game_runtime::{
-    RuntimeCommand, RuntimeHandle, RuntimeOutput, RuntimePlayer, RuntimeSpec, SinteractHandle,
-    SinteractPlayer, SinteractStatus,
-};
+use backend::game_runtime::{RuntimeSpec, SinteractHandle, SinteractPlayer, SinteractStatus};
 
 use crate::rooms::{
-    model::{Player, Room, RoomError, RoomRuntime, RoomSnapshot, RoomStatus, ServerMessage},
+    model::{Player, Room, RoomError, RoomSnapshot, RoomStatus, ServerMessage},
     store::RoomStore,
 };
 
@@ -36,63 +33,44 @@ pub struct JoinRoom {
     pub rx: broadcast::Receiver<ServerMessage>,
 }
 
-pub fn create_room(store: &RoomStore, spec: RuntimeSpec) -> Result<CreatedRoom, RoomError> {
-    let (runtime, runtime_outputs) = RuntimeHandle::reserve(spec.clone());
-    create_room_with_runtime(store, spec, runtime, runtime_outputs)
-}
-
-pub fn create_sinteract_room(
+pub fn create_room(
     store: &RoomStore,
     spec: RuntimeSpec,
     executable: std::path::PathBuf,
+    runtime_permit: OwnedSemaphorePermit,
 ) -> Result<CreatedRoom, RoomError> {
     let (runtime, statuses) = SinteractHandle::reserve(spec.clone(), executable);
-    let changes = runtime.subscribe();
-    let created = insert_room(
-        store,
-        spec,
-        RoomRuntime::Sinteract(runtime),
-        false,
-        |store, code, tx| {
-            forward_sinteract_statuses(store, code, statuses, tx.clone());
-            forward_sinteract_changes(changes, tx);
-        },
-    )?;
-    Ok(created)
+    create_room_with_runtime(store, spec, runtime, statuses, false, Some(runtime_permit))
 }
 
-pub fn create_sinteract_preview_room(
+pub fn create_preview_room(
     store: &RoomStore,
     spec: RuntimeSpec,
     executable: std::path::PathBuf,
+    runtime_permit: OwnedSemaphorePermit,
 ) -> Result<CreatedRoom, RoomError> {
     let (runtime, statuses) = SinteractHandle::reserve(spec.clone(), executable);
-    let changes = runtime.subscribe();
-    insert_room(
-        store,
-        spec,
-        RoomRuntime::Sinteract(runtime),
-        true,
-        |store, code, tx| {
-            forward_sinteract_statuses(store, code, statuses, tx.clone());
-            forward_sinteract_changes(changes, tx);
-        },
-    )
+    create_room_with_runtime(store, spec, runtime, statuses, true, Some(runtime_permit))
 }
 
 fn create_room_with_runtime(
     store: &RoomStore,
     spec: RuntimeSpec,
-    runtime: RuntimeHandle,
-    runtime_outputs: tokio::sync::mpsc::Receiver<RuntimeOutput>,
+    runtime: SinteractHandle,
+    statuses: tokio::sync::mpsc::Receiver<SinteractStatus>,
+    is_preview: bool,
+    runtime_permit: Option<OwnedSemaphorePermit>,
 ) -> Result<CreatedRoom, RoomError> {
+    let changes = runtime.subscribe();
     insert_room(
         store,
         spec,
-        RoomRuntime::Legacy(runtime),
-        false,
+        runtime,
+        runtime_permit,
+        is_preview,
         |store, code, tx| {
-            forward_runtime_outputs(store, code, runtime_outputs, tx);
+            forward_sinteract_statuses(store, code, statuses, tx.clone());
+            forward_sinteract_changes(changes, tx);
         },
     )
 }
@@ -100,7 +78,8 @@ fn create_room_with_runtime(
 fn insert_room(
     store: &RoomStore,
     spec: RuntimeSpec,
-    runtime: RoomRuntime,
+    runtime: SinteractHandle,
+    runtime_permit: Option<OwnedSemaphorePermit>,
     is_preview: bool,
     forward: impl FnOnce(RoomStore, String, broadcast::Sender<ServerMessage>),
 ) -> Result<CreatedRoom, RoomError> {
@@ -126,8 +105,8 @@ fn insert_room(
         players: Vec::new(),
         tx: tx.clone(),
         runtime,
+        _runtime_permit: runtime_permit,
         created_at,
-        started_at: None,
         all_disconnected_at: None,
     };
 
@@ -366,9 +345,6 @@ pub fn leave_room(
 
     if room.status == RoomStatus::Running {
         player.connected = false;
-        if let RoomRuntime::Legacy(runtime) = &room.runtime {
-            let _ = runtime.send(RuntimeCommand::PlayerLeft { player_id });
-        }
 
         let disconnected_at = room
             .players
@@ -447,35 +423,19 @@ pub fn start_room(
         return Err(RoomError::InsufficientPlayers);
     }
 
-    match &room.runtime {
-        RoomRuntime::Legacy(runtime) => runtime
-            .send(RuntimeCommand::Start {
-                game_id: room.spec.game_id(),
-                players: room
-                    .players
-                    .iter()
-                    .map(|player| RuntimePlayer {
-                        id: player.id,
-                        nickname: player.nickname.clone(),
-                    })
-                    .collect(),
-            })
-            .map_err(|_| RoomError::RuntimeUnavailable)?,
-        RoomRuntime::Sinteract(runtime) => runtime
-            .try_start(
-                room.players
-                    .iter()
-                    .map(|player| SinteractPlayer {
-                        id: player.id,
-                        nickname: player.nickname.clone(),
-                    })
-                    .collect(),
-            )
-            .map_err(|_| RoomError::RuntimeUnavailable)?,
-    }
+    room.runtime
+        .try_start(
+            room.players
+                .iter()
+                .map(|player| SinteractPlayer {
+                    id: player.id,
+                    nickname: player.nickname.clone(),
+                })
+                .collect(),
+        )
+        .map_err(|_| RoomError::RuntimeUnavailable)?;
 
     room.status = RoomStatus::Running;
-    room.started_at = Some(Instant::now());
 
     let snapshot = room_snapshot(room);
 
@@ -568,87 +528,6 @@ pub fn promote_host(
     Ok(())
 }
 
-fn forward_runtime_outputs(
-    store: RoomStore,
-    code: String,
-    mut outputs: tokio::sync::mpsc::Receiver<RuntimeOutput>,
-    tx: broadcast::Sender<ServerMessage>,
-) {
-    tokio::spawn(async move {
-        let mut first_frame_logged = false;
-
-        while let Some(output) = outputs.recv().await {
-            let message = match output {
-                RuntimeOutput::Ready => {
-                    let snapshot = {
-                        let Ok(mut rooms) = store.lock() else {
-                            tracing::error!(room = %code, "mutex de salas envenenado");
-                            return;
-                        };
-                        let Some(room) = rooms.get_mut(&code) else {
-                            return;
-                        };
-                        if room.status != RoomStatus::Preparing {
-                            continue;
-                        }
-                        room.status = RoomStatus::Waiting;
-                        room_snapshot(room)
-                    };
-
-                    tracing::info!(room = %code, "runtime da sala está pronto");
-                    let _ = tx.send(ServerMessage::RoomState { room: snapshot });
-                    continue;
-                }
-                RuntimeOutput::Frame { player_id, svg } => match String::from_utf8(svg) {
-                    Ok(svg) if svg.trim_start().starts_with("<svg") => {
-                        if !first_frame_logged
-                            && let Some((elapsed, revision_id, runtime_build)) =
-                                first_frame_metrics(&store, &code)
-                        {
-                            tracing::info!(
-                                room = %code,
-                                revision_id,
-                                runtime_build,
-                                start_to_first_frame_ms = elapsed.as_millis(),
-                                "runtime produziu o primeiro frame"
-                            );
-                            first_frame_logged = true;
-                        }
-                        ServerMessage::Frame { player_id, svg }
-                    }
-                    Ok(_) => ServerMessage::Error {
-                        message: "Runtime respondeu um frame que não é SVG".into(),
-                    },
-                    Err(_) => ServerMessage::Error {
-                        message: "Runtime respondeu um SVG com UTF-8 inválido".into(),
-                    },
-                },
-                RuntimeOutput::Failed(error) => {
-                    let snapshot = {
-                        let Ok(mut rooms) = store.lock() else {
-                            tracing::error!(room = %code, "mutex de salas envenenado");
-                            return;
-                        };
-                        let Some(room) = rooms.get_mut(&code) else {
-                            return;
-                        };
-                        room.status = RoomStatus::Failed;
-                        room_snapshot(room)
-                    };
-
-                    tracing::error!(room = %code, %error, "runtime da partida falhou");
-                    let _ = tx.send(ServerMessage::RoomState { room: snapshot });
-                    ServerMessage::Error {
-                        message: "Runtime da partida foi encerrado".into(),
-                    }
-                }
-            };
-
-            let _ = tx.send(message);
-        }
-    });
-}
-
 fn forward_sinteract_statuses(
     store: RoomStore,
     code: String,
@@ -675,22 +554,21 @@ fn forward_sinteract_statuses(
                     let _ = tx.send(ServerMessage::RoomState { room: snapshot });
                     continue;
                 }
-                SinteractStatus::Ended => ServerMessage::Error {
-                    message: "A engine da partida foi encerrada".into(),
-                },
+                SinteractStatus::Ended => {
+                    let snapshot = mark_runtime_failed(&store, &code);
+                    if let Some(snapshot) = snapshot {
+                        let _ = tx.send(ServerMessage::RoomState { room: snapshot });
+                    }
+                    ServerMessage::Error {
+                        message: "A partida foi encerrada".into(),
+                    }
+                }
                 SinteractStatus::Failed(error) => {
-                    let snapshot = {
-                        let Ok(mut rooms) = store.lock() else {
-                            return;
-                        };
-                        let Some(room) = rooms.get_mut(&code) else {
-                            return;
-                        };
-                        room.status = RoomStatus::Failed;
-                        room_snapshot(room)
-                    };
+                    let snapshot = mark_runtime_failed(&store, &code);
                     tracing::error!(room = %code, %error, "runtime Sinteract falhou");
-                    let _ = tx.send(ServerMessage::RoomState { room: snapshot });
+                    if let Some(snapshot) = snapshot {
+                        let _ = tx.send(ServerMessage::RoomState { room: snapshot });
+                    }
                     ServerMessage::Error {
                         message: "Runtime da partida foi encerrado".into(),
                     }
@@ -699,6 +577,14 @@ fn forward_sinteract_statuses(
             let _ = tx.send(message);
         }
     });
+}
+
+fn mark_runtime_failed(store: &RoomStore, code: &str) -> Option<RoomSnapshot> {
+    let mut rooms = store.lock().ok()?;
+    let room = rooms.get_mut(code)?;
+    room.status = RoomStatus::Failed;
+    room._runtime_permit.take();
+    Some(room_snapshot(room))
 }
 
 fn forward_sinteract_changes(
@@ -712,45 +598,23 @@ fn forward_sinteract_changes(
     });
 }
 
-pub fn sinteract_runtime(
+pub fn runtime(
     store: &RoomStore,
     code: &str,
     player_id: u64,
     connection_generation: u64,
-) -> Result<Option<SinteractHandle>, RoomError> {
+) -> Result<SinteractHandle, RoomError> {
     let rooms = lock_rooms(store)?;
     let room = rooms.get(code).ok_or(RoomError::NotFound)?;
     ensure_current_connection(room, player_id, connection_generation)?;
-    Ok(match &room.runtime {
-        RoomRuntime::Legacy(_) => None,
-        RoomRuntime::Sinteract(runtime) => Some(runtime.clone()),
-    })
+    Ok(room.runtime.clone())
 }
 
-fn stop_runtime(runtime: &RoomRuntime) {
-    match runtime {
-        RoomRuntime::Legacy(runtime) => {
-            let _ = runtime.send(RuntimeCommand::Stop);
-        }
-        RoomRuntime::Sinteract(runtime) => {
-            let runtime = runtime.clone();
-            tokio::spawn(async move {
-                let _ = runtime.stop().await;
-            });
-        }
-    }
-}
-
-fn first_frame_metrics(store: &RoomStore, code: &str) -> Option<(Duration, i64, String)> {
-    let rooms = store.lock().ok()?;
-    let room = rooms.get(code)?;
-    let started_at = room.started_at?;
-
-    Some((
-        started_at.elapsed(),
-        room.spec.revision_id(),
-        room.spec.runtime_build_id().to_string(),
-    ))
+fn stop_runtime(runtime: &SinteractHandle) {
+    let runtime = runtime.clone();
+    tokio::spawn(async move {
+        let _ = runtime.stop().await;
+    });
 }
 
 fn ensure_host(room: &Room, player_id: u64) -> Result<(), RoomError> {
@@ -802,7 +666,6 @@ fn room_snapshot(room: &Room) -> RoomSnapshot {
     RoomSnapshot {
         code: room.code.clone(),
         game_id: room.spec.game_id(),
-        sinteract: matches!(room.runtime, RoomRuntime::Sinteract(_)),
         is_preview: room.invite_token.is_some(),
         status: room.status.clone(),
         min_players: room.spec.min_players(),
@@ -925,9 +788,10 @@ fn random_token(len: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
-    use backend::game_runtime::{RuntimeHandle, RuntimeOutput, RuntimeSpec};
+    use backend::game_runtime::{RuntimeSpec, SinteractHandle, SinteractStatus};
+    use tokio::sync::Semaphore;
 
     use super::{
         CreatedRoom, create_room_with_runtime, expire_disconnected_room_after,
@@ -1254,8 +1118,10 @@ mod tests {
     #[tokio::test]
     async fn runtime_ready_transitions_the_room_from_preparing_to_waiting() {
         let store = new_store();
-        let (runtime, runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
+        let (runtime, runtime_output, outputs) = SinteractHandle::simulated();
+        let created =
+            create_room_with_runtime(&store, runtime_spec(), runtime, outputs, false, None)
+                .unwrap();
         let mut events = {
             let rooms = store.lock().unwrap();
             let room = rooms.get(&created.code).unwrap();
@@ -1263,7 +1129,7 @@ mod tests {
             room.tx.subscribe()
         };
 
-        runtime_output.send(RuntimeOutput::Ready).await.unwrap();
+        runtime_output.send(SinteractStatus::Ready).await.unwrap();
         let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
             .await
             .unwrap()
@@ -1283,8 +1149,10 @@ mod tests {
     #[tokio::test]
     async fn start_is_rejected_until_the_runtime_is_ready() {
         let store = new_store();
-        let (runtime, _runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
+        let (runtime, _runtime_output, outputs) = SinteractHandle::simulated();
+        let created =
+            create_room_with_runtime(&store, runtime_spec(), runtime, outputs, false, None)
+                .unwrap();
         let joined = join_room(
             &store,
             &created.code,
@@ -1307,15 +1175,25 @@ mod tests {
     #[tokio::test]
     async fn runtime_failure_marks_the_room_and_blocks_new_players() {
         let store = new_store();
-        let (runtime, runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
+        let limiter = Arc::new(Semaphore::new(1));
+        let permit = limiter.clone().try_acquire_owned().unwrap();
+        let (runtime, runtime_output, outputs) = SinteractHandle::simulated();
+        let created = create_room_with_runtime(
+            &store,
+            runtime_spec(),
+            runtime,
+            outputs,
+            false,
+            Some(permit),
+        )
+        .unwrap();
         let mut events = {
             let rooms = store.lock().unwrap();
             rooms.get(&created.code).unwrap().tx.subscribe()
         };
 
         runtime_output
-            .send(RuntimeOutput::Failed("fixture encerrou".into()))
+            .send(SinteractStatus::Failed("fixture encerrou".into()))
             .await
             .unwrap();
         let _ = tokio::time::timeout(Duration::from_secs(1), events.recv())
@@ -1332,13 +1210,53 @@ mod tests {
             rooms.get(&created.code).unwrap().status,
             RoomStatus::Failed
         ));
+        drop(rooms);
+        assert!(limiter.try_acquire_owned().is_ok());
+    }
+
+    #[tokio::test]
+    async fn runtime_end_marks_the_room_failed_and_releases_its_process_slot() {
+        let store = new_store();
+        let limiter = Arc::new(Semaphore::new(1));
+        let permit = limiter.clone().try_acquire_owned().unwrap();
+        let (runtime, runtime_output, outputs) = SinteractHandle::simulated();
+        let created = create_room_with_runtime(
+            &store,
+            runtime_spec(),
+            runtime,
+            outputs,
+            false,
+            Some(permit),
+        )
+        .unwrap();
+        let mut events = store
+            .lock()
+            .unwrap()
+            .get(&created.code)
+            .unwrap()
+            .tx
+            .subscribe();
+
+        runtime_output.send(SinteractStatus::Ended).await.unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(matches!(
+            store.lock().unwrap().get(&created.code).unwrap().status,
+            RoomStatus::Failed
+        ));
+        assert!(limiter.try_acquire_owned().is_ok());
     }
 
     #[tokio::test]
     async fn empty_room_expiration_removes_the_room_and_its_runtime() {
         let store = new_store();
-        let (runtime, _runtime_output, outputs) = RuntimeHandle::simulated();
-        let created = create_room_with_runtime(&store, runtime_spec(), runtime, outputs).unwrap();
+        let (runtime, _runtime_output, outputs) = SinteractHandle::simulated();
+        let created =
+            create_room_with_runtime(&store, runtime_spec(), runtime, outputs, false, None)
+                .unwrap();
         let created_at = store.lock().unwrap().get(&created.code).unwrap().created_at;
 
         expire_empty_room_after(
@@ -1413,7 +1331,7 @@ mod tests {
     }
 
     fn create_test_room(store: &crate::rooms::RoomStore, spec: RuntimeSpec) -> CreatedRoom {
-        let (runtime, outputs) = RuntimeHandle::simulated_ready();
-        create_room_with_runtime(store, spec, runtime, outputs).unwrap()
+        let (runtime, outputs) = SinteractHandle::simulated_ready();
+        create_room_with_runtime(store, spec, runtime, outputs, false, None).unwrap()
     }
 }

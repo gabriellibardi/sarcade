@@ -1,17 +1,10 @@
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{OwnedSemaphorePermit, broadcast};
 
-use backend::game_runtime::{RuntimeHandle, RuntimeSpec, SinteractHandle};
+use backend::game_runtime::{RuntimeSpec, SinteractHandle};
 
-#[derive(Clone)]
-pub enum RoomRuntime {
-    Legacy(RuntimeHandle),
-    Sinteract(SinteractHandle),
-}
-
-#[derive(Clone)]
 pub struct Room {
     pub code: String,
     pub spec: RuntimeSpec,
@@ -25,10 +18,10 @@ pub struct Room {
     pub players: Vec<Player>,
 
     pub tx: broadcast::Sender<ServerMessage>,
-    pub runtime: RoomRuntime,
+    pub runtime: SinteractHandle,
+    pub _runtime_permit: Option<OwnedSemaphorePermit>,
 
     pub created_at: Instant,
-    pub started_at: Option<Instant>,
     pub all_disconnected_at: Option<Instant>,
 }
 
@@ -57,7 +50,6 @@ pub struct Player {
 pub struct RoomSnapshot {
     pub code: String,
     pub game_id: i64,
-    pub sinteract: bool,
     pub is_preview: bool,
     pub status: RoomStatus,
     pub min_players: i64,
@@ -121,13 +113,6 @@ pub enum ServerMessage {
     #[serde(rename = "player_left")]
     PlayerLeft { player_id: u64, room: RoomSnapshot },
 
-    #[serde(rename = "frame")]
-    Frame {
-        #[serde(skip)]
-        player_id: u64,
-        svg: String,
-    },
-
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -135,10 +120,6 @@ pub enum ServerMessage {
 impl ServerMessage {
     pub fn is_for_connection(&self, player_id: u64, connection_generation: u64) -> bool {
         match self {
-            Self::Frame {
-                player_id: target_id,
-                ..
-            } => *target_id == player_id,
             Self::ConnectionReplaced {
                 player_id: target_id,
                 connection_generation: target_generation,
@@ -225,17 +206,6 @@ mod tests {
     }
 
     #[test]
-    fn targeted_frame_is_visible_only_to_its_player() {
-        let frame = ServerMessage::Frame {
-            player_id: 7,
-            svg: "<svg/>".into(),
-        };
-
-        assert!(frame.is_for_connection(7, 1));
-        assert!(!frame.is_for_connection(8, 1));
-    }
-
-    #[test]
     fn replacement_targets_only_the_previous_connection_generation() {
         let replaced = ServerMessage::ConnectionReplaced {
             player_id: 7,
@@ -246,19 +216,6 @@ mod tests {
         assert!(replaced.closes_connection(7, 2));
         assert!(!replaced.is_for_connection(7, 3));
         assert!(!replaced.is_for_connection(8, 2));
-    }
-
-    #[test]
-    fn websocket_frame_omits_internal_routing_metadata() {
-        let frame = ServerMessage::Frame {
-            player_id: 7,
-            svg: "<svg/>".into(),
-        };
-        let json = serde_json::to_value(frame).unwrap();
-
-        assert_eq!(json["type"], "frame");
-        assert_eq!(json["svg"], "<svg/>");
-        assert!(json.get("player_id").is_none());
     }
 
     #[test]

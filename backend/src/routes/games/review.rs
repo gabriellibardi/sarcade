@@ -7,6 +7,8 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use backend::game_runtime::MAX_PLAYERS_PER_GAME;
+
 use crate::{auth::require_admin, db::Db};
 
 #[derive(Deserialize)]
@@ -39,15 +41,23 @@ pub async fn approve_revision(
                 reviewed_at = datetime('now')
             WHERE id = ?1
               AND status = 'pending'
+              AND max_players <= ?2
+              AND EXISTS (
+                  SELECT 1
+                  FROM runtime_builds
+                  WHERE runtime_builds.id = game_revisions.runtime_build_id
+                    AND runtime_builds.status IN ('development', 'active')
+              )
             ",
-            [id],
+            rusqlite::params![id, MAX_PLAYERS_PER_GAME],
         )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if affected == 0 {
         return Err((
             StatusCode::CONFLICT,
-            "Revisão não encontrada ou já analisada".into(),
+            "Revisão não encontrada, já analisada, acima dos limites ou com runtime indisponível"
+                .into(),
         ));
     }
 

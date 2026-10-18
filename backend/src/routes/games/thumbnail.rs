@@ -25,9 +25,11 @@ pub async fn get_thumbnail(
             SELECT game_revisions.thumbnail
             FROM games
             JOIN game_revisions ON game_revisions.game_id = games.id
+            JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
             WHERE games.id = ?1
               AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
+              AND runtime_builds.status IN ('development', 'active')
             ORDER BY COALESCE(game_revisions.reviewed_at, game_revisions.created_at) DESC,
                      game_revisions.id DESC
             LIMIT 1
@@ -83,25 +85,64 @@ fn thumbnail_response(
         return Err((StatusCode::NOT_FOUND, "Thumbnail não encontrada".into()));
     };
 
-    let content_type = detect_image_content_type(&bytes);
+    let content_type = thumbnail_content_type(&bytes)
+        .ok_or((StatusCode::NOT_FOUND, "Thumbnail não encontrada".into()))?;
 
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, HeaderValue::from_static(content_type))
+        .header("x-content-type-options", "nosniff")
         .body(Body::from(bytes))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-fn detect_image_content_type(bytes: &[u8]) -> &'static str {
+pub(crate) fn validate_thumbnail(bytes: &[u8]) -> Result<(), (StatusCode, String)> {
+    thumbnail_content_type(bytes).map(|_| ()).ok_or((
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "A thumbnail deve ser PNG, JPEG ou WebP válido".into(),
+    ))
+}
+
+fn thumbnail_content_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "image/png"
+        Some("image/png")
     } else if bytes.starts_with(b"\xff\xd8\xff") {
-        "image/jpeg"
+        Some("image/jpeg")
     } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        "image/webp"
-    } else if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") {
-        "image/svg+xml"
+        Some("image/webp")
     } else {
-        "application/octet-stream"
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+
+    use super::{thumbnail_content_type, validate_thumbnail};
+
+    #[test]
+    fn accepts_only_supported_raster_signatures() {
+        assert_eq!(
+            thumbnail_content_type(b"\x89PNG\r\n\x1a\nrest"),
+            Some("image/png")
+        );
+        assert_eq!(
+            thumbnail_content_type(b"\xff\xd8\xffrest"),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            thumbnail_content_type(b"RIFF\x00\x00\x00\x00WEBPrest"),
+            Some("image/webp")
+        );
+    }
+
+    #[test]
+    fn rejects_svg_and_arbitrary_bytes() {
+        assert!(matches!(
+            validate_thumbnail(b"<svg><script>alert(1)</script></svg>"),
+            Err((StatusCode::UNSUPPORTED_MEDIA_TYPE, _))
+        ));
+        assert!(validate_thumbnail(b"not an image").is_err());
     }
 }

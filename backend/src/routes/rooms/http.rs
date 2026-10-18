@@ -6,8 +6,9 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-use backend::game_runtime::RuntimeSpec;
+use backend::game_runtime::{MAX_PLAYERS_PER_GAME, RuntimeSpec};
 
 use crate::{
     auth::current_user,
@@ -49,14 +50,10 @@ pub async fn create_room(
     let nickname = service::validate_nickname(&payload.nickname).map_err(room_error_to_http)?;
 
     let spec = get_runtime_spec(&state.db, payload.game_id)?;
-
-    let created = match (&state.sgleam_executable, spec.runtime()) {
-        (Some(executable), "sgleam") => {
-            service::create_sinteract_room(&state.rooms, spec, executable.path().to_path_buf())
-        }
-        _ => service::create_room(&state.rooms, spec),
-    }
-    .map_err(room_error_to_http)?;
+    let executable = executable_for(&state, &spec)?;
+    let runtime_permit = reserve_runtime_process(&state)?;
+    let created = service::create_room(&state.rooms, spec, executable, runtime_permit)
+        .map_err(room_error_to_http)?;
 
     Ok(Json(CreateRoomResponse {
         code: created.code,
@@ -79,20 +76,11 @@ pub async fn create_revision_room(
     ))?;
     let nickname = service::validate_nickname(&payload.nickname).map_err(room_error_to_http)?;
     let spec = get_revision_runtime_spec(&state.db, revision_id, user.id, user.is_admin)?;
-    let executable = state.sgleam_executable.as_ref().ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        "Runtime Sgleam indisponível para testar o jogo".to_string(),
-    ))?;
-    if spec.runtime() != "sgleam" {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "Este runtime ainda não oferece partidas de teste".into(),
-        ));
-    }
+    let executable = executable_for(&state, &spec)?;
+    let runtime_permit = reserve_runtime_process(&state)?;
     let game_id = spec.game_id();
-    let created =
-        service::create_sinteract_preview_room(&state.rooms, spec, executable.path().to_path_buf())
-            .map_err(room_error_to_http)?;
+    let created = service::create_preview_room(&state.rooms, spec, executable, runtime_permit)
+        .map_err(room_error_to_http)?;
 
     Ok(Json(CreateRoomResponse {
         code: created.code,
@@ -101,6 +89,42 @@ pub async fn create_revision_room(
         nickname,
         invite_token: created.invite_token,
     }))
+}
+
+fn reserve_runtime_process(
+    state: &AppState,
+) -> Result<tokio::sync::OwnedSemaphorePermit, (StatusCode, String)> {
+    state.reserve_runtime_process().map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "O servidor atingiu o limite de partidas simultâneas; tente novamente em instantes"
+                .into(),
+        )
+    })
+}
+
+fn executable_for(state: &AppState, spec: &RuntimeSpec) -> Result<PathBuf, (StatusCode, String)> {
+    if !matches!(spec.runtime_status(), "development" | "active") || spec.runtime() != "sgleam" {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Este build de runtime não oferece partidas".into(),
+        ));
+    }
+    if spec.max_players() > i64::from(MAX_PLAYERS_PER_GAME) {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Este jogo excede o limite de participantes da plataforma".into(),
+        ));
+    }
+
+    state
+        .sgleam_executable
+        .as_ref()
+        .map(|executable| executable.path().to_path_buf())
+        .ok_or((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Runtime indisponível para criar a sala".into(),
+        ))
 }
 
 pub async fn get_room(
@@ -213,6 +237,7 @@ fn get_runtime_spec(db: &Db, game_id: i64) -> Result<RuntimeSpec, (StatusCode, S
             WHERE game_revisions.game_id = ?1
               AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
+              AND runtime_builds.status IN ('development', 'active')
             ORDER BY
                 COALESCE(
                     game_revisions.reviewed_at,

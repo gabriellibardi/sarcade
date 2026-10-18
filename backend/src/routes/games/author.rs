@@ -7,13 +7,14 @@ use axum_extra::extract::cookie::CookieJar;
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 
+use backend::game_runtime::MAX_PLAYERS_PER_GAME;
+
 use crate::{auth::current_user, state::AppState};
 
 use super::{
     inspect::inspect_source_code,
-    submit::{
-        DEFAULT_RUNTIME_BUILD, MAX_SOURCE_CODE_LEN, MAX_THUMBNAIL_SIZE, validate_text_fields,
-    },
+    submit::{MAX_SOURCE_CODE_LEN, MAX_THUMBNAIL_SIZE, validate_text_fields},
+    thumbnail::validate_thumbnail,
 };
 
 pub async fn archive_game(
@@ -260,10 +261,16 @@ pub async fn update_draft(
     {
         return Err((StatusCode::BAD_REQUEST, "Thumbnail muito grande".into()));
     }
+    if let Some(thumbnail) = &thumbnail {
+        validate_thumbnail(thumbnail)?;
+    }
     let runtime_build_id = runtime_build_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_RUNTIME_BUILD.to_string());
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Build de runtime é obrigatório".to_string(),
+        ))?;
 
     ensure_editable(&state, id, user.id, user.is_admin)?;
     let inspected = inspect_source_code(
@@ -352,6 +359,7 @@ pub async fn submit_draft(
                 updated_at = datetime('now')
             WHERE id = ?1
               AND status = 'draft'
+              AND max_players <= ?4
               AND EXISTS (
                   SELECT 1
                   FROM games
@@ -366,8 +374,14 @@ pub async fn submit_draft(
                     AND pending.id <> game_revisions.id
                     AND pending.status = 'pending'
               )
+              AND EXISTS (
+                  SELECT 1
+                  FROM runtime_builds
+                  WHERE runtime_builds.id = game_revisions.runtime_build_id
+                    AND runtime_builds.status IN ('development', 'active')
+              )
             ",
-            rusqlite::params![id, user.id, i64::from(user.is_admin)],
+            rusqlite::params![id, user.id, i64::from(user.is_admin), MAX_PLAYERS_PER_GAME],
         )
         .map_err(|error| internal_error(&error))?;
     if affected == 0 {
@@ -562,6 +576,7 @@ mod tests {
             Arc::new(Mutex::new(conn)),
             AuthService::new(None, vec![]),
             None,
+            4,
         );
         let jar = CookieJar::new().add(Cookie::new(SESSION_COOKIE, "author-token"));
         (state, jar)

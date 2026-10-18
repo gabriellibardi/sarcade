@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 pub type Db = Arc<Mutex<Connection>>;
 
-const CURRENT_SCHEMA_VERSION: i64 = 2;
+const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 pub fn init(path: &str) -> Db {
     let conn = Connection::open(path).expect("falha ao abrir o banco de dados");
@@ -36,9 +36,30 @@ pub(crate) fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
 
     if version == 1 {
         migrate_revisions_v2(conn)?;
+        version = 2;
+    }
+
+    if version == 2 {
+        migrate_runtime_availability_v3(conn)?;
     }
 
     Ok(())
+}
+
+fn migrate_runtime_availability_v3(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        BEGIN IMMEDIATE;
+
+        UPDATE runtime_builds
+        SET status = 'unavailable',
+            is_default = 0
+        WHERE runtime = 'spython';
+
+        PRAGMA user_version = 3;
+        COMMIT;
+        ",
+    )
 }
 
 fn migrate_revisions_v2(conn: &Connection) -> rusqlite::Result<()> {
@@ -149,6 +170,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(runtime_count, 2);
+        let spython: (String, i64) = conn
+            .query_row(
+                "SELECT status, is_default FROM runtime_builds WHERE id = 'spython-dev'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(spython, ("unavailable".into(), 0));
         assert!(table_exists(&conn, "games"));
         assert!(table_exists(&conn, "game_revisions"));
         assert!(table_exists(&conn, "user_identities"));
@@ -165,6 +194,31 @@ mod tests {
 
         assert_eq!(schema_version(&conn), 0);
         initialize_schema(&conn).unwrap();
+        assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_disables_runtime_builds_without_an_executor() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        initialize_schema(&conn).unwrap();
+        conn.execute(
+            "UPDATE runtime_builds SET status = 'development', is_default = 1 WHERE id = 'spython-dev'",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+
+        initialize_schema(&conn).unwrap();
+
+        let build: (String, i64) = conn
+            .query_row(
+                "SELECT status, is_default FROM runtime_builds WHERE id = 'spython-dev'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(build, ("unavailable".into(), 0));
         assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
     }
 

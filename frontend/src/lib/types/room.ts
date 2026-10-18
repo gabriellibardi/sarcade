@@ -10,7 +10,6 @@ export type RoomStatus = 'preparing' | 'waiting' | 'running' | 'failed';
 export type RoomSnapshot = {
 	code: string;
 	game_id: number;
-	sinteract: boolean;
 	is_preview: boolean;
 	status: RoomStatus;
 	min_players: number;
@@ -35,5 +34,4 @@ export type RoomServerMessage =
 	| { type: 'host_changed'; host_player_id: number; room: RoomSnapshot }
 	| { type: 'player_kicked'; player_id: number; room: RoomSnapshot }
 	| { type: 'player_left'; player_id: number; room: RoomSnapshot }
-	| { type: 'frame'; svg: string }
 	| { type: 'error'; message: string };

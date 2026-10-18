@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 
-use backend::game_runtime::inspect_sgleam_players;
+use backend::game_runtime::{MAX_PLAYERS_PER_GAME, PlayerLimits, inspect_sgleam_players};
 
 use crate::{auth::current_user, state::AppState};
 
@@ -145,8 +145,15 @@ pub(crate) async fn inspect_source_code(
 
     let executable = state.sgleam_executable.as_ref().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        "Runtime Sgleam indisponível para analisar o jogo".to_string(),
+        "Runtime indisponível para analisar o jogo".to_string(),
     ))?;
+    let _runtime_permit = state.reserve_runtime_process().map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "O servidor atingiu o limite de análises e partidas simultâneas; tente novamente em instantes"
+                .to_string(),
+        )
+    })?;
     let limits = inspect_sgleam_players(
         executable.path().to_path_buf(),
         source_code.to_string(),
@@ -161,11 +168,27 @@ pub(crate) async fn inspect_source_code(
         )
     })?;
 
+    validate_player_limits(limits)?;
+
     Ok(InspectedSource {
         runtime,
         min_players: i64::from(limits.min),
         max_players: i64::from(limits.max),
     })
+}
+
+fn validate_player_limits(limits: PlayerLimits) -> Result<(), (StatusCode, String)> {
+    if limits.max <= MAX_PLAYERS_PER_GAME {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::UNPROCESSABLE_ENTITY,
+        format!(
+            "O jogo aceita até {} jogadores; o limite da plataforma é {MAX_PLAYERS_PER_GAME}",
+            limits.max
+        ),
+    ))
 }
 
 fn has_expected_extension(filename: Option<&str>, expected_extension: &str) -> bool {
@@ -183,7 +206,10 @@ fn has_expected_extension(filename: Option<&str>, expected_extension: &str) -> b
 
 #[cfg(test)]
 mod tests {
-    use super::has_expected_extension;
+    use axum::http::StatusCode;
+    use backend::game_runtime::{MAX_PLAYERS_PER_GAME, PlayerLimits};
+
+    use super::{has_expected_extension, validate_player_limits};
 
     #[test]
     fn accepts_expected_source_extension() {
@@ -195,5 +221,23 @@ mod tests {
     fn rejects_missing_or_wrong_source_extension() {
         assert!(!has_expected_extension(Some("pong.py"), ".gleam"));
         assert!(!has_expected_extension(None, ".gleam"));
+    }
+
+    #[test]
+    fn rejects_a_game_above_the_platform_player_limit() {
+        assert!(
+            validate_player_limits(PlayerLimits {
+                min: 1,
+                max: MAX_PLAYERS_PER_GAME,
+            })
+            .is_ok()
+        );
+        assert!(matches!(
+            validate_player_limits(PlayerLimits {
+                min: 1,
+                max: MAX_PLAYERS_PER_GAME + 1,
+            }),
+            Err((StatusCode::UNPROCESSABLE_ENTITY, _))
+        ));
     }
 }

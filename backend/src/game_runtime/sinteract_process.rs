@@ -16,7 +16,7 @@ use tokio::{
     sync::{mpsc, mpsc::error::TrySendError, oneshot, watch},
 };
 
-use super::{MaterializedSource, RuntimeSpec};
+use super::{MAX_PLAYERS_PER_GAME, MaterializedSource, RuntimeSpec};
 
 const COMMAND_QUEUE_CAPACITY: usize = 128;
 const STATUS_QUEUE_CAPACITY: usize = 16;
@@ -69,6 +69,62 @@ impl SinteractHandle {
         executable: PathBuf,
     ) -> (Self, mpsc::Receiver<SinteractStatus>) {
         Self::reserve_with_launch(spec, Launch::Fixture(executable))
+    }
+
+    #[doc(hidden)]
+    pub fn simulated() -> (
+        Self,
+        mpsc::Sender<SinteractStatus>,
+        mpsc::Receiver<SinteractStatus>,
+    ) {
+        let (command_tx, mut command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
+        let (status_tx, status_rx) = mpsc::channel(STATUS_QUEUE_CAPACITY);
+        let (change_tx, change_rx) = watch::channel(0);
+
+        tokio::spawn(async move {
+            let _change_tx = change_tx;
+            while let Some(command) = command_rx.recv().await {
+                match command {
+                    Command::Start { reply, .. } => {
+                        let _ = reply.send(Ok(()));
+                    }
+                    Command::Connect { reply, .. } => {
+                        let _ = reply.send(Err(SinteractCommandError::NotReady));
+                    }
+                    Command::FromView { reply, .. } => {
+                        let _ = reply.send(Err(SinteractCommandError::InvalidView));
+                    }
+                    Command::Next { reply, .. } => {
+                        let _ = reply.send(Ok(SinteractOutput::Gone));
+                    }
+                    Command::Leave { reply, .. } => {
+                        let _ = reply.send(Ok(()));
+                    }
+                    Command::Stop { reply } => {
+                        let _ = reply.send(Ok(()));
+                        return;
+                    }
+                }
+            }
+        });
+
+        (
+            Self {
+                commands: command_tx,
+                changes: change_rx,
+            },
+            status_tx,
+            status_rx,
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn simulated_ready() -> (Self, mpsc::Receiver<SinteractStatus>) {
+        let (handle, statuses, status_rx) = Self::simulated();
+        tokio::spawn(async move {
+            let _ = statuses.send(SinteractStatus::Ready).await;
+        });
+        (handle, status_rx)
     }
 
     fn reserve_with_launch(
@@ -305,7 +361,7 @@ async fn run_unix_session(
         Launch::Fixture(executable) => (
             executable,
             vec![
-                "sinteract-runtime-stub".into(),
+                "sinteract-test-engine".into(),
                 spec.min_players().to_string().into(),
                 spec.max_players().to_string().into(),
             ],
@@ -390,7 +446,6 @@ where
 {
     let mut core = Core::Lobby(Some(LobbyCore::new()));
     let mut read_buffer = vec![0; READ_BYTES];
-    let mut engine_open = true;
     let mut ready_sent = false;
     let mut ticker = tokio::time::interval(TICK_PERIOD);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -406,10 +461,9 @@ where
                     return Ok(());
                 }
             }
-            read = from_engine.read(&mut read_buffer), if engine_open => {
+            read = from_engine.read(&mut read_buffer) => {
                 let read = read?;
                 if read == 0 {
-                    engine_open = false;
                     match &mut core {
                         Core::Lobby(_) => {
                             return Err(io::Error::new(
@@ -423,9 +477,9 @@ where
                             }
                             notify(changes);
                             let _ = statuses.send(SinteractStatus::Ended).await;
+                            return Ok(());
                         }
                     }
-                    continue;
                 }
 
                 let bytes = read_buffer.get(..read).expect("a read fits its buffer");
@@ -461,7 +515,7 @@ where
                     }
                 }
             }
-            _ = ticker.tick(), if matches!(core, Core::Running { .. }) && engine_open => {
+            _ = ticker.tick(), if matches!(core, Core::Running { .. }) => {
                 if let Core::Running { server, .. } = &mut core {
                     server.tick();
                     flush_engine(server, to_engine).await?;
@@ -631,6 +685,14 @@ where
 fn validate_range(spec: &RuntimeSpec, range: PlayerRange) -> io::Result<()> {
     let min = i64::from(range.min().get());
     let max = i64::from(range.max().get());
+    if range.max().get() > MAX_PLAYERS_PER_GAME {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Sinteract hello declared {max} players, above the platform limit of {MAX_PLAYERS_PER_GAME}"
+            ),
+        ));
+    }
     if min == spec.min_players() && max == spec.max_players() {
         Ok(())
     } else {
@@ -651,7 +713,7 @@ fn notify(changes: &watch::Sender<u64>) {
 }
 
 #[cfg(unix)]
-pub fn run_stub_from_fds() -> io::Result<()> {
+pub fn run_test_engine_from_fds() -> io::Result<()> {
     use std::{fs::File, os::fd::FromRawFd};
 
     use sinteract::{
@@ -690,7 +752,7 @@ pub fn run_stub_from_fds() -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
-pub fn run_stub_from_fds() -> io::Result<()> {
+pub fn run_test_engine_from_fds() -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "Sinteract fd sessions require Unix",

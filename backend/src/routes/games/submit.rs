@@ -9,12 +9,12 @@ use serde_json::{Value, json};
 use crate::{auth::current_user, state::AppState};
 
 use super::inspect::inspect_source_code;
+use super::thumbnail::validate_thumbnail;
 
 const MAX_TITLE_LEN: usize = 100;
 const MAX_DESCRIPTION_LEN: usize = 2_000;
 pub(crate) const MAX_SOURCE_CODE_LEN: usize = 200_000;
 pub(crate) const MAX_THUMBNAIL_SIZE: usize = 1_000_000;
-pub(crate) const DEFAULT_RUNTIME_BUILD: &str = "sgleam-dev";
 
 pub async fn submit_game(
     State(state): State<AppState>,
@@ -97,11 +97,17 @@ pub async fn submit_game(
     {
         return Err((StatusCode::BAD_REQUEST, "Thumbnail muito grande".into()));
     }
+    if let Some(thumbnail) = &thumbnail {
+        validate_thumbnail(thumbnail)?;
+    }
 
     let runtime_build_id = runtime_build_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_RUNTIME_BUILD.to_string());
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Build de runtime é obrigatório".to_string(),
+        ))?;
 
     let inspected = inspect_source_code(
         &state,

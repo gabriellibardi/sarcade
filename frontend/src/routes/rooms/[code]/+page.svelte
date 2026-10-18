@@ -33,7 +33,6 @@
 
 	let message = '';
 	let error = '';
-	let frameSvg = '';
 	let gameCanvas: HTMLCanvasElement | null = null;
 	let sinteractView: SinteractView | null = null;
 	let sinteractLink: SinteractLink | null = null;
@@ -53,8 +52,7 @@
 	$: isConnecting = connectionState === WS_CONNECTING;
 	$: canShowJoinForm = connectionState === WS_CLOSED && !isCheckingRoom && !entryBlocked;
 	$: canStart = Boolean(room?.can_start && amHost && room.status === 'waiting');
-	$: frameUrl = frameSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(frameSvg)}` : '';
-	$: if (room?.status === 'running' && room.sinteract && gameCanvas && isConnected) {
+	$: if (room?.status === 'running' && gameCanvas && isConnected) {
 		void activateSinteract();
 	}
 
@@ -177,6 +175,7 @@
 			case 'room_state':
 				room = data.room;
 				refreshHostStatus();
+				if (data.room.status !== 'running') closeSinteract();
 				break;
 
 			case 'room_started':
@@ -210,10 +209,6 @@
 			case 'player_left':
 				room = data.room;
 				refreshHostStatus();
-				break;
-
-			case 'frame':
-				frameSvg = data.svg;
 				break;
 
 			case 'error':
@@ -267,7 +262,6 @@
 			activatingSinteract ||
 			sinteractView ||
 			room?.status !== 'running' ||
-			!room.sinteract ||
 			!socket ||
 			socket.readyState !== WS_OPEN
 		) {
@@ -283,8 +277,7 @@
 				!gameCanvas ||
 				!activeSocket ||
 				activeSocket.readyState !== WS_OPEN ||
-				room?.status !== 'running' ||
-				!room.sinteract
+				room?.status !== 'running'
 			) {
 				return;
 			}
@@ -354,7 +347,6 @@
 		myPlayerId = null;
 		amHost = false;
 		room = null;
-		frameSvg = '';
 	}
 
 	function saveParticipation() {
@@ -503,7 +495,7 @@
 		{#if room?.status === 'running'}
 			<div class="mx-auto flex min-h-[calc(100vh-11rem)] w-full max-w-6xl flex-col justify-center">
 				<div>
-					<GameViewport {frameUrl} sinteract={room.sinteract} bind:canvas={gameCanvas} />
+					<GameViewport bind:canvas={gameCanvas} />
 					<GameControls
 						enabled={Boolean(sinteractLink)}
 						onPadDown={(input) => sendPad('down', input)}

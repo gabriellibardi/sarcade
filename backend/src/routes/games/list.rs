@@ -68,11 +68,18 @@ pub async fn list_approved_games(
         LEFT JOIN users ON users.id = games.author_id
         WHERE game_revisions.status = 'approved'
           AND games.archived_at IS NULL
+          AND runtime_builds.status IN ('development', 'active')
           AND game_revisions.id = (
               SELECT latest.id
               FROM game_revisions AS latest
               WHERE latest.game_id = games.id
                 AND latest.status = 'approved'
+                AND EXISTS (
+                    SELECT 1
+                    FROM runtime_builds AS latest_runtime
+                    WHERE latest_runtime.id = latest.runtime_build_id
+                      AND latest_runtime.status IN ('development', 'active')
+                )
               ORDER BY COALESCE(latest.reviewed_at, latest.created_at) DESC, latest.id DESC
               LIMIT 1
           )
@@ -118,6 +125,7 @@ pub async fn get_game(
             WHERE games.id = ?1
               AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
+              AND runtime_builds.status IN ('development', 'active')
             ORDER BY COALESCE(game_revisions.reviewed_at, game_revisions.created_at) DESC,
                      game_revisions.id DESC
             LIMIT 1
@@ -148,11 +156,18 @@ pub(crate) fn list_approved_games_by_author(
         WHERE games.author_id = ?1
           AND games.archived_at IS NULL
           AND game_revisions.status = 'approved'
+          AND runtime_builds.status IN ('development', 'active')
           AND game_revisions.id = (
               SELECT latest.id
               FROM game_revisions AS latest
               WHERE latest.game_id = games.id
                 AND latest.status = 'approved'
+                AND EXISTS (
+                    SELECT 1
+                    FROM runtime_builds AS latest_runtime
+                    WHERE latest_runtime.id = latest.runtime_build_id
+                      AND latest_runtime.status IN ('development', 'active')
+                )
               ORDER BY COALESCE(latest.reviewed_at, latest.created_at) DESC, latest.id DESC
               LIMIT 1
           )
@@ -412,7 +427,10 @@ fn published_game_details_from_row(row: &Row<'_>) -> rusqlite::Result<PublishedG
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use axum::extract::{Path, State};
+    use axum::{
+        extract::{Path, State},
+        http::StatusCode,
+    };
     use rusqlite::Connection;
 
     use super::get_game;
@@ -463,5 +481,39 @@ mod tests {
         assert_eq!(json["max_players"], 4);
         assert!(json.get("source_code").is_none());
         assert!(json.get("review_message").is_none());
+    }
+
+    #[tokio::test]
+    async fn public_game_details_hide_an_unavailable_runtime_build() {
+        let db = test_db();
+
+        {
+            let conn = db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO users (email, name) VALUES ('autor@example.com', 'Autora')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO games (title, description, author_id) VALUES ('Jogo', 'Descrição', 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "
+                INSERT INTO game_revisions
+                    (game_id, revision_number, runtime_build_id, title, description,
+                     source_code, status, min_players, max_players, reviewed_at)
+                VALUES
+                    (1, 1, 'spython-dev', 'Jogo', 'Descrição', 'fonte', 'approved', 1, 1, '2026-01-01 00:00:00')
+                ",
+                [],
+            )
+            .unwrap();
+        }
+
+        let result = get_game(State(db), Path(1)).await;
+
+        assert!(matches!(result, Err((StatusCode::NOT_FOUND, _))));
     }
 }

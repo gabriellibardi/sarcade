@@ -1,8 +1,9 @@
 # Sarcade
 
-Arcade para jogos criados com Student Languages, atualmente Sgleam e Spython.
+Arcade para jogos criados com linguagens educacionais e executados por builds
+de runtime cadastrados na plataforma.
 
-O contrato temporário entre o servidor e o runtime de partidas está descrito
+O contrato entre o servidor e o runtime de partidas está descrito
 em [`backend/RUNTIME_PROTOCOL.md`](backend/RUNTIME_PROTOCOL.md).
 
 ## Login com Google
@@ -72,13 +73,37 @@ mas `PUBLIC_BASE_URL` estiver ausente, o login fica desabilitado em vez de usar 
 - Salas de teste usam exatamente a revisão escolhida, mesmo sem publicação. Elas recebem um token
   de convite aleatório no link; somente o autor, um administrador ou quem recebeu esse link pode
   consultar e entrar na sala.
-- A detecção automática e as salas de teste estão disponíveis para Sgleam. Builds Spython continuam
-  visíveis no cadastro de runtimes, mas esse fluxo retorna um erro explícito enquanto não houver um
-  contrato equivalente para descobrir a quantidade de jogadores.
+- Somente builds com executor disponível aparecem como opção de envio e podem
+  abrir salas. Nesta versão, o pipeline implementado é o do Sgleam; adicionar
+  outra linguagem exige integrar seu executor ao mesmo contrato de runtime,
+  sem alterar o fluxo da interface.
 
 A página da sala consulta o servidor antes de pedir o nickname. Assim, convite inválido, sala cheia,
 partida já iniciada ou runtime indisponível são mostrados assim que o link é aberto. A validação é
 repetida no WebSocket para cobrir corridas entre a consulta e a entrada.
+
+Se o host sair do lobby, o participante que entrou há mais tempo assume automaticamente e pode
+iniciar a partida quando o mínimo de jogadores for alcançado.
+
+## Segurança e limites
+
+- Código, mensagens e uploads são tratados como entrada não confiável. O
+  backend repete validações de autoria, estado, runtime e limites sem confiar
+  no frontend.
+- Partidas e inspeções compartilham um limite de subprocessos. O padrão é 32;
+  `MAX_RUNTIME_PROCESSES` aceita valores de 1 a 256. Ao esgotar a capacidade,
+  novas operações recebem um erro temporário em vez de criar processos sem
+  limite.
+- Um jogo pode declarar no máximo 16 participantes. Código-fonte tem limite de
+  200 KiB, thumbnail de 1 MiB e o corpo HTTP completo de 2 MiB.
+- Thumbnails novas aceitam somente assinaturas PNG, JPEG e WebP. SVG e bytes
+  arbitrários são recusados pelo servidor.
+- O WebSocket limita mensagens, aplica backpressure e vincula entradas ao
+  assento autenticado pela própria conexão. Respostas HTTP recebem cabeçalhos
+  contra MIME sniffing, framing e vazamento de referência.
+
+As garantias, a fronteira de confiança e as limitações de isolamento estão em
+[`backend/SECURITY.md`](backend/SECURITY.md).
 
 ## Administradores
 
@@ -120,6 +145,7 @@ incorporado quando está definida:
 
 ```sh
 SGLEAM_EXECUTABLE=/caminho/para/sgleam
+MAX_RUNTIME_PROCESSES=32
 ```
 
 Na primeira vez, prepare as dependências e o target MUSL:

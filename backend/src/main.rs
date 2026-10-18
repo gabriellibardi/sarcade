@@ -14,24 +14,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[tokio::main]
 async fn main() {
     let mut args = std::env::args().skip(1);
-    match args.next().as_deref() {
-        Some("runtime-stub") => {
-            if let Err(error) =
-                backend::game_runtime::process::run_stub_from_args(args.next()).await
-            {
-                eprintln!("runtime reserva falhou: {error}");
-                std::process::exit(1);
-            }
-            return;
+    if let Some("sinteract-test-engine") = args.next().as_deref() {
+        if let Err(error) = backend::game_runtime::sinteract_process::run_test_engine_from_fds() {
+            eprintln!("engine Sinteract de teste falhou: {error}");
+            std::process::exit(1);
         }
-        Some("sinteract-runtime-stub") => {
-            if let Err(error) = backend::game_runtime::sinteract_process::run_stub_from_fds() {
-                eprintln!("runtime Sinteract de teste falhou: {error}");
-                std::process::exit(1);
-            }
-            return;
-        }
-        _ => {}
+        return;
     }
 
     tracing_subscriber::registry()
@@ -43,6 +31,10 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
+    tracing::info!(
+        max_runtime_processes = config.max_runtime_processes,
+        "limite compartilhado de processos de runtime configurado"
+    );
     let sgleam_executable =
         SgleamExecutable::configured(config.sgleam_executable).unwrap_or_else(|error| {
             tracing::error!(%error, "falha ao preparar runtime Sgleam");
@@ -52,7 +44,7 @@ async fn main() {
     auth::sync_admin_roles(&db, &config.admin_emails)
         .expect("falha ao sincronizar administradores");
     let auth = auth::AuthService::new(config.google_oauth, config.admin_emails);
-    let state = state::AppState::new(db, auth, sgleam_executable);
+    let state = state::AppState::new(db, auth, sgleam_executable, config.max_runtime_processes);
     let app = routes::router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);

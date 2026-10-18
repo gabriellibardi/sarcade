@@ -350,11 +350,7 @@ async fn handle_incoming_message(
 
         Message::Binary(payload) => {
             let Some(session) = sinteract else {
-                let _ = send_error(
-                    sender,
-                    "Esta sala ainda usa o runtime reserva sem entrada binária",
-                )
-                .await;
+                let _ = send_error(sender, "Runtime da partida indisponível").await;
                 return false;
             };
             match session
@@ -364,7 +360,7 @@ async fn handle_incoming_message(
             {
                 Ok(()) => true,
                 Err(_) => {
-                    let _ = send_error(sender, "Mensagem Sinteract inválida").await;
+                    let _ = send_error(sender, "Mensagem do jogo inválida").await;
                     false
                 }
             }
@@ -378,10 +374,7 @@ async fn connect_sinteract(
     player_id: u64,
     connection_generation: u64,
 ) -> Result<Option<ActiveSinteract>, RoomError> {
-    let Some(runtime) = service::sinteract_runtime(rooms, code, player_id, connection_generation)?
-    else {
-        return Ok(None);
-    };
+    let runtime = service::runtime(rooms, code, player_id, connection_generation)?;
     let conn = runtime
         .connect(player_id)
         .await
