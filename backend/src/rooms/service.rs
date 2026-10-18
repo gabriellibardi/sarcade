@@ -394,13 +394,11 @@ pub fn leave_room(
 
     room.players.retain(|player| player.id != player_id);
 
-    if room.host_player_id == Some(player_id) {
-        room.host_player_id = None;
-
-        for player in &mut room.players {
-            player.is_host = false;
-        }
-    }
+    let successor = if room.host_player_id == Some(player_id) {
+        promote_oldest_player(room)
+    } else {
+        None
+    };
 
     if room.players.is_empty() {
         stop_runtime(&room.runtime);
@@ -412,8 +410,15 @@ pub fn leave_room(
 
     let _ = room.tx.send(ServerMessage::PlayerLeft {
         player_id,
-        room: snapshot,
+        room: snapshot.clone(),
     });
+
+    if let Some(host_player_id) = successor {
+        let _ = room.tx.send(ServerMessage::HostChanged {
+            host_player_id,
+            room: snapshot,
+        });
+    }
 
     Ok(())
 }
@@ -756,6 +761,15 @@ fn ensure_host(room: &Room, player_id: u64) -> Result<(), RoomError> {
     }
 }
 
+fn promote_oldest_player(room: &mut Room) -> Option<u64> {
+    let host_player_id = room.players.first()?.id;
+    room.host_player_id = Some(host_player_id);
+    for player in &mut room.players {
+        player.is_host = player.id == host_player_id;
+    }
+    Some(host_player_id)
+}
+
 fn ensure_current_connection(
     room: &Room,
     player_id: u64,
@@ -1063,6 +1077,92 @@ mod tests {
         let room = rooms.get(&created.code).unwrap();
         let player = &room.players[0];
         assert_ne!(player.connection_generation, joined.connection_generation);
+    }
+
+    #[tokio::test]
+    async fn host_departure_promotes_the_oldest_remaining_player() {
+        let store = new_store();
+        let created = create_test_room(&store, runtime_spec());
+        let host = join_room(
+            &store,
+            &created.code,
+            "Host".into(),
+            Some(created.host_token),
+            None,
+        )
+        .unwrap();
+        let mut successor =
+            join_room(&store, &created.code, "Primeira".into(), None, None).unwrap();
+        let newest = join_room(&store, &created.code, "Segunda".into(), None, None).unwrap();
+
+        {
+            let mut rooms = store.lock().unwrap();
+            rooms.get_mut(&created.code).unwrap().status = RoomStatus::Waiting;
+        }
+
+        leave_room(
+            &store,
+            &created.code,
+            host.player_id,
+            host.connection_generation,
+        )
+        .unwrap();
+
+        {
+            let rooms = store.lock().unwrap();
+            let room = rooms.get(&created.code).unwrap();
+            assert_eq!(room.host_player_id, Some(successor.player_id));
+            assert!(
+                room.players
+                    .iter()
+                    .find(|player| player.id == successor.player_id)
+                    .unwrap()
+                    .is_host
+            );
+            assert!(
+                !room
+                    .players
+                    .iter()
+                    .find(|player| player.id == newest.player_id)
+                    .unwrap()
+                    .is_host
+            );
+        }
+
+        let mut saw_departure = false;
+        let mut saw_promotion = false;
+        while let Ok(event) = successor.rx.try_recv() {
+            match event {
+                ServerMessage::PlayerLeft {
+                    player_id, room, ..
+                } if player_id == host.player_id => {
+                    saw_departure = true;
+                    assert!(
+                        room.players
+                            .iter()
+                            .any(|player| { player.id == successor.player_id && player.is_host })
+                    );
+                }
+                ServerMessage::HostChanged {
+                    host_player_id,
+                    room,
+                } if host_player_id == successor.player_id => {
+                    saw_promotion = true;
+                    assert!(room.can_start);
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_departure);
+        assert!(saw_promotion);
+
+        start_room(
+            &store,
+            &created.code,
+            successor.player_id,
+            successor.connection_generation,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
