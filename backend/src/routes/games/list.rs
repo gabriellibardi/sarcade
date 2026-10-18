@@ -433,6 +433,8 @@ mod tests {
     };
     use rusqlite::Connection;
 
+    use backend::game_runtime::version::SGLEAM_BUILD_ID;
+
     use super::get_game;
 
     fn test_db() -> Arc<Mutex<Connection>> {
@@ -464,11 +466,11 @@ mod tests {
                     (game_id, revision_number, runtime_build_id, title, description,
                      source_code, status, min_players, max_players, review_message, reviewed_at)
                 VALUES
-                    (1, 1, 'sgleam-dev', 'Jogo', 'Descrição', 'segredo antigo', 'approved', 1, 2, 'nota antiga', '2026-01-01 00:00:00'),
-                    (1, 2, 'sgleam-dev', 'Jogo', 'Descrição', 'segredo atual', 'approved', 2, 4, 'nota atual', '2026-02-01 00:00:00'),
-                    (1, 3, 'sgleam-dev', 'Jogo futuro', 'Descrição futura', 'ainda em revisão', 'pending', 8, 8, NULL, NULL)
+                    (1, 1, ?1, 'Jogo', 'Descrição', 'segredo antigo', 'approved', 1, 2, 'nota antiga', '2026-01-01 00:00:00'),
+                    (1, 2, ?1, 'Jogo', 'Descrição', 'segredo atual', 'approved', 2, 4, 'nota atual', '2026-02-01 00:00:00'),
+                    (1, 3, ?1, 'Jogo futuro', 'Descrição futura', 'ainda em revisão', 'pending', 8, 8, NULL, NULL)
                 ",
-                [],
+                [SGLEAM_BUILD_ID],
             )
             .unwrap();
         }

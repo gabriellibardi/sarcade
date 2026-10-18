@@ -47,7 +47,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS runtime_builds_one_default_per_runtime
 INSERT OR IGNORE INTO runtime_builds
     (id, runtime, display_name, display_version, source_extension, status, is_default)
 VALUES
-    ('sgleam-dev', 'sgleam', 'Sgleam', 'desenvolvimento', '.gleam', 'development', 1),
+    ('sgleam-dev', 'sgleam', 'Sgleam', 'desenvolvimento', '.gleam', 'unavailable', 0),
     ('spython-dev', 'spython', 'Spython', 'desenvolvimento', '.py', 'unavailable', 0);
 
 CREATE TABLE IF NOT EXISTS games (

@@ -3,6 +3,7 @@ pub mod inspect;
 pub mod materialize;
 pub mod sinteract_process;
 pub mod spec;
+pub mod version;
 
 pub use executable::SgleamExecutable;
 pub use inspect::{PlayerLimits, inspect_sgleam_players};

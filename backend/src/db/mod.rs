@@ -1,9 +1,13 @@
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
+use backend::game_runtime::version::{
+    SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SGLEAM_VERSION, SINTERACT_PROTOCOL_VERSION,
+};
+
 pub type Db = Arc<Mutex<Connection>>;
 
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 pub fn init(path: &str) -> Db {
     let conn = Connection::open(path).expect("falha ao abrir o banco de dados");
@@ -41,9 +45,61 @@ pub(crate) fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
 
     if version == 2 {
         migrate_runtime_availability_v3(conn)?;
+        version = 3;
+    }
+
+    if version == 3 {
+        migrate_pinned_sgleam_build_v4(conn)?;
     }
 
     Ok(())
+}
+
+fn migrate_pinned_sgleam_build_v4(conn: &Connection) -> rusqlite::Result<()> {
+    let transaction = conn.unchecked_transaction()?;
+
+    transaction.execute(
+        "
+        UPDATE runtime_builds
+        SET status = 'deprecated', is_default = 0
+        WHERE runtime = 'sgleam'
+          AND id <> ?1
+          AND status <> 'unavailable'
+        ",
+        [SGLEAM_BUILD_ID],
+    )?;
+    transaction.execute(
+        "
+        INSERT INTO runtime_builds
+            (id, runtime, display_name, display_version, git_commit,
+             protocol_version, source_extension, status, is_default)
+        VALUES (?1, 'sgleam', 'Sgleam', ?2, ?3, ?4, '.gleam', 'active', 1)
+        ON CONFLICT(id) DO UPDATE SET
+            display_name = excluded.display_name,
+            display_version = excluded.display_version,
+            git_commit = excluded.git_commit,
+            protocol_version = excluded.protocol_version,
+            source_extension = excluded.source_extension,
+            status = excluded.status,
+            is_default = excluded.is_default
+        ",
+        rusqlite::params![
+            SGLEAM_BUILD_ID,
+            SGLEAM_VERSION,
+            SGLEAM_GIT_COMMIT,
+            SINTERACT_PROTOCOL_VERSION
+        ],
+    )?;
+    transaction.execute(
+        "UPDATE game_revisions SET runtime_build_id = ?1 WHERE runtime_build_id = 'sgleam-dev'",
+        [SGLEAM_BUILD_ID],
+    )?;
+    transaction.execute(
+        "UPDATE runtime_builds SET status = 'unavailable', is_default = 0 WHERE id = 'sgleam-dev'",
+        [],
+    )?;
+    transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
+    transaction.commit()
 }
 
 fn migrate_runtime_availability_v3(conn: &Connection) -> rusqlite::Result<()> {
@@ -169,7 +225,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM runtime_builds", [], |row| row.get(0))
             .unwrap();
 
-        assert_eq!(runtime_count, 2);
+        assert_eq!(runtime_count, 3);
         let spython: (String, i64) = conn
             .query_row(
                 "SELECT status, is_default FROM runtime_builds WHERE id = 'spython-dev'",
@@ -178,6 +234,31 @@ mod tests {
             )
             .unwrap();
         assert_eq!(spython, ("unavailable".into(), 0));
+        let sgleam: (String, String, String, i64, i64) = conn
+            .query_row(
+                "SELECT display_version, git_commit, status, protocol_version, is_default FROM runtime_builds WHERE id = ?1",
+                [SGLEAM_BUILD_ID],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            sgleam,
+            (
+                SGLEAM_VERSION.into(),
+                SGLEAM_GIT_COMMIT.into(),
+                "active".into(),
+                i64::from(SINTERACT_PROTOCOL_VERSION),
+                1,
+            )
+        );
         assert!(table_exists(&conn, "games"));
         assert!(table_exists(&conn, "game_revisions"));
         assert!(table_exists(&conn, "user_identities"));
@@ -219,6 +300,46 @@ mod tests {
             )
             .unwrap();
         assert_eq!(build, ("unavailable".into(), 0));
+        assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_pins_existing_development_revisions_to_the_embedded_build() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        initialize_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO users (email, name) VALUES ('autor@example.com', 'Autora')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (title, description, author_id) VALUES ('Jogo', 'Descrição', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE runtime_builds SET status = 'development' WHERE id = 'sgleam-dev'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO game_revisions (game_id, revision_number, runtime_build_id, title, description, source_code) VALUES (1, 1, 'sgleam-dev', 'Jogo', 'Descrição', 'fonte')",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+
+        initialize_schema(&conn).unwrap();
+
+        let runtime_build_id: String = conn
+            .query_row(
+                "SELECT runtime_build_id FROM game_revisions WHERE game_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(runtime_build_id, SGLEAM_BUILD_ID);
         assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
     }
 

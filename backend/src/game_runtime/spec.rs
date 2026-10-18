@@ -121,13 +121,14 @@ impl RuntimeSpec {
     }
 
     pub fn validate_protocol(&self, expected_protocol: u32) -> Result<(), RuntimeSpecError> {
-        if self.runtime_status == "unavailable" {
+        if !matches!(self.runtime_status.as_str(), "development" | "active") {
             return Err(RuntimeSpecError::Unavailable);
         }
 
-        if let Some(actual) = self.protocol_version
-            && actual != i64::from(expected_protocol)
-        {
+        let actual = self
+            .protocol_version
+            .ok_or(RuntimeSpecError::MissingProtocol)?;
+        if actual != i64::from(expected_protocol) {
             return Err(RuntimeSpecError::Protocol {
                 expected: expected_protocol,
                 actual,
@@ -141,6 +142,7 @@ impl RuntimeSpec {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuntimeSpecError {
     Unavailable,
+    MissingProtocol,
     Protocol { expected: u32, actual: i64 },
 }
 
@@ -148,6 +150,7 @@ impl fmt::Display for RuntimeSpecError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unavailable => formatter.write_str("runtime build is unavailable"),
+            Self::MissingProtocol => formatter.write_str("runtime protocol version is missing"),
             Self::Protocol { expected, actual } => write!(
                 formatter,
                 "runtime protocol {actual} is incompatible with expected protocol {expected}"
@@ -192,7 +195,16 @@ mod tests {
             })
         ));
 
-        assert!(spec("pub fn main() { 1 }").validate_protocol(2).is_ok());
+        let mut missing = spec("pub fn main() { 1 }");
+        missing.protocol_version = None;
+        assert!(matches!(
+            missing.validate_protocol(2),
+            Err(super::RuntimeSpecError::MissingProtocol)
+        ));
+
+        let mut compatible = spec("pub fn main() { 1 }");
+        compatible.protocol_version = Some(2);
+        assert!(compatible.validate_protocol(2).is_ok());
     }
 
     fn spec(source: &str) -> RuntimeSpec {

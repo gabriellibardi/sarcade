@@ -134,6 +134,14 @@ Sarcade sem `--recurse-submodules`, inicialize-os antes da primeira compilação
 git submodule update --init
 ```
 
+Os gitlinks dos submódulos, `backend/Cargo.lock` e
+`frontend/package-lock.json` são parte da entrada versionada do build. O
+projeto fixa Rust 1.95.0 em `rust-toolchain.toml`, Node 24.8.0 em `.nvmrc`, usa
+Cargo com `--locked` e declara npm 11 no pacote do frontend. `make
+verify-sources` também
+recusa submódulos ausentes, em commits diferentes ou com alterações locais, e
+confere que o Sgleam e o Sarcade usam o mesmo commit do Sinteract.
+
 O build de release compila o Sgleam para MUSL e incorpora o executável ao
 binário do Sarcade. Na inicialização, o backend materializa uma cópia privada
 desse runtime e a reutiliza em todas as partidas. Assim, o servidor não precisa
@@ -141,7 +149,10 @@ de um executável Sgleam instalado à parte.
 
 Em um build de desenvolvimento sem o runtime incorporado, `SGLEAM_EXECUTABLE`
 pode indicar um executável externo. A variável também substitui o runtime
-incorporado quando está definida:
+incorporado quando está definida. O executável substituto deve corresponder ao
+mesmo build Sgleam fixado pelo checkout; a variável não altera a identidade do
+runtime registrada nas revisões. Na inicialização, o backend executa
+`--version` e recusa uma versão ou commit diferente:
 
 ```sh
 SGLEAM_EXECUTABLE=/caminho/para/sgleam
@@ -167,3 +178,18 @@ GNU. O binário autocontido será criado em
 `backend/target/x86_64-unknown-linux-musl/release/backend`.
 
 Use `make check` para executar as verificações do frontend, os testes Rust e o Clippy.
+
+### Identidade do runtime
+
+Durante a compilação, o backend deriva do checkout uma identidade imutável no
+formato `sgleam-<versão>-<commit curto>`, além do commit completo do Sgleam e
+da versão do protocolo Sinteract. Esses valores alimentam o cadastro de builds
+no SQLite. Cada revisão passa a apontar para essa identidade exata; o antigo
+`sgleam-dev` é migrado uma única vez para o build atualmente incorporado e
+depois fica indisponível.
+
+Atualizar Sgleam ou Sinteract exige atualizar os gitlinks, gerar uma nova
+migração/cadastro de build e validar os jogos antes de tornar o novo build o
+padrão. Builds antigos não são silenciosamente executados por um binário novo.
+Isso torna as entradas e a compatibilidade do artefato rastreáveis; não é uma
+promessa de que dois compiladores/sistemas distintos produzam bytes idênticos.

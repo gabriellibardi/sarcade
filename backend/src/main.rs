@@ -8,6 +8,7 @@ mod routes;
 mod state;
 
 use backend::game_runtime::SgleamExecutable;
+use backend::game_runtime::version::{SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SINTERACT_GIT_COMMIT};
 use config::Config;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -40,6 +41,18 @@ async fn main() {
             tracing::error!(%error, "falha ao preparar runtime Sgleam");
             std::process::exit(1);
         });
+    if let Some(executable) = &sgleam_executable
+        && let Err(error) = executable.verify_build_identity()
+    {
+        tracing::error!(%error, "build do runtime Sgleam incompatível");
+        std::process::exit(1);
+    }
+    tracing::info!(
+        runtime_build = SGLEAM_BUILD_ID,
+        sgleam_commit = SGLEAM_GIT_COMMIT,
+        sinteract_commit = SINTERACT_GIT_COMMIT,
+        "build de runtime verificado"
+    );
     let db = db::init(&config.database_url);
     auth::sync_admin_roles(&db, &config.admin_emails)
         .expect("falha ao sincronizar administradores");

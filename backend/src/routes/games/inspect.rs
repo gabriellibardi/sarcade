@@ -9,7 +9,10 @@ use axum_extra::extract::cookie::CookieJar;
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 
-use backend::game_runtime::{MAX_PLAYERS_PER_GAME, PlayerLimits, inspect_sgleam_players};
+use backend::game_runtime::{
+    MAX_PLAYERS_PER_GAME, PlayerLimits, inspect_sgleam_players,
+    version::{SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SINTERACT_PROTOCOL_VERSION},
+};
 
 use crate::{auth::current_user, state::AppState};
 
@@ -118,8 +121,14 @@ pub(crate) async fn inspect_source_code(
             FROM runtime_builds
             WHERE id = ?1
               AND status IN ('development', 'active')
+              AND git_commit = ?2
+              AND protocol_version = ?3
             ",
-            [runtime_build_id],
+            rusqlite::params![
+                runtime_build_id,
+                SGLEAM_GIT_COMMIT,
+                SINTERACT_PROTOCOL_VERSION
+            ],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()
@@ -129,6 +138,13 @@ pub(crate) async fn inspect_source_code(
             "Build de runtime inválido ou indisponível".to_string(),
         ))?
     };
+
+    if runtime_build_id != SGLEAM_BUILD_ID {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Build de runtime inválido ou indisponível".into(),
+        ));
+    }
 
     if !has_expected_extension(uploaded_filename, &source_extension) {
         return Err((

@@ -13,6 +13,8 @@ use std::{
 #[cfg(feature = "embedded-sgleam")]
 use rand::{Rng, distributions::Alphanumeric};
 
+use super::version::{SGLEAM_GIT_COMMIT, SGLEAM_VERSION};
+
 #[cfg(feature = "embedded-sgleam")]
 const DIRECTORY_ATTEMPTS: usize = 16;
 #[cfg(feature = "embedded-sgleam")]
@@ -41,6 +43,36 @@ impl SgleamExecutable {
 
     pub fn path(&self) -> &Path {
         &self.inner.path
+    }
+
+    pub fn verify_build_identity(&self) -> io::Result<()> {
+        let output = std::process::Command::new(self.path())
+            .arg("--version")
+            .output()?;
+        if !output.status.success() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "o executável Sgleam falhou ao informar sua versão",
+            ));
+        }
+
+        let version = String::from_utf8(output.stdout).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a versão do executável Sgleam não é UTF-8 válido",
+            )
+        })?;
+        if !matches_expected_build(&version) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "o executável não corresponde ao Sgleam {SGLEAM_VERSION} ({}) fixado pelo Sarcade",
+                    short_commit()
+                ),
+            ));
+        }
+
+        Ok(())
     }
 
     fn external(path: PathBuf) -> Self {
@@ -74,6 +106,17 @@ impl SgleamExecutable {
     fn embedded() -> io::Result<Option<Self>> {
         Ok(None)
     }
+}
+
+fn matches_expected_build(version: &str) -> bool {
+    version.starts_with(&format!("Version: {SGLEAM_VERSION} ("))
+        && version
+            .trim_end()
+            .ends_with(&format!(", {})", short_commit()))
+}
+
+fn short_commit() -> &'static str {
+    &SGLEAM_GIT_COMMIT[..7]
 }
 
 impl Drop for ExecutableInner {
@@ -147,7 +190,8 @@ fn write_executable(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::SgleamExecutable;
+    use super::{SgleamExecutable, matches_expected_build, short_commit};
+    use crate::game_runtime::version::SGLEAM_VERSION;
 
     #[test]
     fn an_external_executable_needs_no_copy() {
@@ -157,6 +201,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(executable.path(), path);
+    }
+
+    #[test]
+    fn accepts_only_the_version_and_commit_fixed_by_the_backend() {
+        let expected = format!(
+            "Version: {SGLEAM_VERSION} (using gleam 1, stdlib 1 and quickjs 1, 2026-10-18, {})\n",
+            short_commit()
+        );
+
+        assert!(matches_expected_build(&expected));
+        assert!(!matches_expected_build(
+            "Version: 999.0.0 (using gleam 1, stdlib 1 and quickjs 1, 2026-10-18, deadbee)\n"
+        ));
     }
 
     #[cfg(not(feature = "embedded-sgleam"))]
@@ -179,6 +236,7 @@ mod tests {
 
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).starts_with("Version: "));
+        executable.verify_build_identity().unwrap();
 
         let clone = executable.clone();
         drop(executable);

@@ -13,10 +13,19 @@ SHA-256 e os limites de jogadores. Somente builds com estado `development` ou
 `active` podem ser publicados ou usados para abrir uma sala. O intervalo
 declarado pode conter no máximo 16 jogadores.
 
+O build Sgleam disponível não é um alias mutável: sua identidade combina a
+versão e o commit do submódulo (por exemplo, `sgleam-0.8.0-efa0773`), e o
+cadastro guarda também o commit completo e a versão do protocolo Sinteract.
+A migração do schema 4 converte referências antigas a `sgleam-dev` para esse
+build exato. Um build depreciado permanece no histórico, mas não abre novas
+salas nem recebe submissões.
+
 O build de release incorpora o executável Sgleam. Na inicialização, o backend
 materializa uma cópia privada que pode ser substituída, em desenvolvimento,
 por `SGLEAM_EXECUTABLE`. A ausência do executável não muda a semântica da
 partida nem ativa uma simulação; ela deixa o runtime indisponível.
+Quando há executável, o backend confere sua saída de `--version` contra a
+versão e o commit compilados no servidor antes de aceitar requisições.
 
 Para cada sessão, o backend cria um diretório aleatório com permissão `0700`
 em Unix e grava `game.<extensão>` com permissão `0600`. A extensão aceita

@@ -8,7 +8,10 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use backend::game_runtime::{MAX_PLAYERS_PER_GAME, RuntimeSpec};
+use backend::game_runtime::{
+    MAX_PLAYERS_PER_GAME, RuntimeSpec,
+    version::{SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SINTERACT_PROTOCOL_VERSION},
+};
 
 use crate::{
     auth::current_user,
@@ -104,10 +107,14 @@ fn reserve_runtime_process(
 }
 
 fn executable_for(state: &AppState, spec: &RuntimeSpec) -> Result<PathBuf, (StatusCode, String)> {
-    if !matches!(spec.runtime_status(), "development" | "active") || spec.runtime() != "sgleam" {
+    if spec.runtime() != "sgleam"
+        || spec.runtime_build_id() != SGLEAM_BUILD_ID
+        || spec.git_commit() != Some(SGLEAM_GIT_COMMIT)
+        || spec.validate_protocol(SINTERACT_PROTOCOL_VERSION).is_err()
+    {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Este build de runtime não oferece partidas".into(),
+            "Este build de runtime não é compatível com o executor instalado".into(),
         ));
     }
     if spec.max_players() > i64::from(MAX_PLAYERS_PER_GAME) {
@@ -293,6 +300,10 @@ mod tests {
 
     use rusqlite::Connection;
 
+    use backend::game_runtime::version::{
+        SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SGLEAM_VERSION, SINTERACT_PROTOCOL_VERSION,
+    };
+
     use super::get_runtime_spec;
 
     #[test]
@@ -313,27 +324,15 @@ mod tests {
             .unwrap();
             conn.execute(
                 "
-                UPDATE runtime_builds
-                SET display_version = '0.7.0',
-                    git_commit = 'abc123',
-                    protocol_version = 2,
-                    status = 'active'
-                WHERE id = 'sgleam-dev'
-                ",
-                [],
-            )
-            .unwrap();
-            conn.execute(
-                "
                 INSERT INTO game_revisions
                     (game_id, revision_number, runtime_build_id, title, description,
                      source_code, status, min_players, max_players, reviewed_at)
                 VALUES
                     (1, 1, 'spython-dev', 'Jogo', 'Descrição', 'fonte antiga', 'approved', 1, 2, '2026-01-01 00:00:00'),
-                    (1, 2, 'sgleam-dev', 'Jogo', 'Descrição', 'fonte aprovada', 'approved', 2, 4, '2026-02-01 00:00:00'),
+                    (1, 2, ?1, 'Jogo', 'Descrição', 'fonte aprovada', 'approved', 2, 4, '2026-02-01 00:00:00'),
                     (1, 3, 'spython-dev', 'Jogo futuro', 'Descrição futura', 'fonte pendente', 'pending', 8, 8, NULL)
                 ",
-                [],
+                [SGLEAM_BUILD_ID],
             )
             .unwrap();
         }
@@ -342,11 +341,14 @@ mod tests {
 
         assert_eq!(spec.game_id(), 1);
         assert_eq!(spec.revision_id(), 2);
-        assert_eq!(spec.runtime_build_id(), "sgleam-dev");
+        assert_eq!(spec.runtime_build_id(), SGLEAM_BUILD_ID);
         assert_eq!(spec.runtime(), "sgleam");
-        assert_eq!(spec.display_version(), "0.7.0");
-        assert_eq!(spec.git_commit(), Some("abc123"));
-        assert_eq!(spec.protocol_version(), Some(2));
+        assert_eq!(spec.display_version(), SGLEAM_VERSION);
+        assert_eq!(spec.git_commit(), Some(SGLEAM_GIT_COMMIT));
+        assert_eq!(
+            spec.protocol_version(),
+            Some(i64::from(SINTERACT_PROTOCOL_VERSION))
+        );
         assert_eq!(spec.source_extension(), ".gleam");
         assert_eq!(spec.runtime_status(), "active");
         assert_eq!(spec.source_code(), "fonte aprovada");

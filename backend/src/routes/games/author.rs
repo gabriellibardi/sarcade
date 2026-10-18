@@ -543,6 +543,8 @@ mod tests {
     }
 
     fn state_with_revision(status: &str) -> (AppState, CookieJar) {
+        use backend::game_runtime::version::SGLEAM_BUILD_ID;
+
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         crate::db::initialize_schema(&conn).unwrap();
@@ -567,9 +569,9 @@ mod tests {
                 game_id, revision_number, created_by_user_id, runtime_build_id,
                 title, description, source_code, status, submitted_at
             )
-            VALUES (1, 1, 1, 'sgleam-dev', 'Jogo', 'Descrição', 'fonte', ?1, datetime('now'))
+            VALUES (1, 1, 1, ?1, 'Jogo', 'Descrição', 'fonte', ?2, datetime('now'))
             ",
-            [status],
+            [SGLEAM_BUILD_ID, status],
         )
         .unwrap();
         let state = AppState::new(

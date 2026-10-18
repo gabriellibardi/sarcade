@@ -66,6 +66,8 @@ mod tests {
     use axum::extract::{Path, State};
     use rusqlite::Connection;
 
+    use backend::game_runtime::version::SGLEAM_BUILD_ID;
+
     use super::get_user_profile;
 
     #[tokio::test]
@@ -89,10 +91,10 @@ mod tests {
                 (game_id, revision_number, runtime_build_id, title, description,
                  source_code, status, reviewed_at)
             VALUES
-                (1, 1, 'sgleam-dev', 'Publicado', 'Visível', 'fonte publicada', 'approved', '2026-01-01 00:00:00'),
-                (2, 1, 'sgleam-dev', 'Pendente', 'Oculto', 'fonte pendente', 'pending', NULL)
+                (1, 1, ?1, 'Publicado', 'Visível', 'fonte publicada', 'approved', '2026-01-01 00:00:00'),
+                (2, 1, ?1, 'Pendente', 'Oculto', 'fonte pendente', 'pending', NULL)
             ",
-            [],
+            [SGLEAM_BUILD_ID],
         )
         .unwrap();
         let db = Arc::new(Mutex::new(conn));
