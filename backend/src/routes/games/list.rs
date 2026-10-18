@@ -7,16 +7,16 @@ use axum_extra::extract::cookie::CookieJar;
 use rusqlite::{OptionalExtension, Row};
 
 use crate::{
-    auth::require_admin,
+    auth::{current_user, require_admin},
     db::Db,
-    models::game::{GameDetails, GameSummary, PublishedGameDetails},
+    models::game::{GameDetails, GameSummary, OwnedGame, OwnedRevision, PublishedGameDetails},
 };
 
 const SUMMARY_COLUMNS: &str = "
     games.id,
     game_revisions.id,
-    games.title,
-    games.description,
+    game_revisions.title,
+    game_revisions.description,
     game_revisions.status,
     game_revisions.min_players,
     game_revisions.max_players,
@@ -24,7 +24,7 @@ const SUMMARY_COLUMNS: &str = "
     users.name,
     games.is_featured,
     game_revisions.created_at,
-    games.thumbnail IS NOT NULL,
+    game_revisions.thumbnail IS NOT NULL,
     runtime_builds.id,
     runtime_builds.runtime,
     runtime_builds.display_name,
@@ -46,6 +46,7 @@ pub async fn list_pending_games(
         JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
         LEFT JOIN users ON users.id = games.author_id
         WHERE game_revisions.status = 'pending'
+          AND games.archived_at IS NULL
         ORDER BY game_revisions.created_at DESC, game_revisions.id DESC
         "
     );
@@ -66,6 +67,7 @@ pub async fn list_approved_games(
         JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
         LEFT JOIN users ON users.id = games.author_id
         WHERE game_revisions.status = 'approved'
+          AND games.archived_at IS NULL
           AND game_revisions.id = (
               SELECT latest.id
               FROM game_revisions AS latest
@@ -94,8 +96,8 @@ pub async fn get_game(
             SELECT
                 games.id,
                 game_revisions.id,
-                games.title,
-                games.description,
+                game_revisions.title,
+                game_revisions.description,
                 game_revisions.min_players,
                 game_revisions.max_players,
                 users.id,
@@ -103,7 +105,7 @@ pub async fn get_game(
                 games.is_featured,
                 game_revisions.created_at,
                 game_revisions.reviewed_at,
-                games.thumbnail IS NOT NULL,
+                game_revisions.thumbnail IS NOT NULL,
                 runtime_builds.id,
                 runtime_builds.runtime,
                 runtime_builds.display_name,
@@ -114,6 +116,7 @@ pub async fn get_game(
             JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
             LEFT JOIN users ON users.id = games.author_id
             WHERE games.id = ?1
+              AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
             ORDER BY COALESCE(game_revisions.reviewed_at, game_revisions.created_at) DESC,
                      game_revisions.id DESC
@@ -143,6 +146,7 @@ pub(crate) fn list_approved_games_by_author(
         JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
         LEFT JOIN users ON users.id = games.author_id
         WHERE games.author_id = ?1
+          AND games.archived_at IS NULL
           AND game_revisions.status = 'approved'
           AND game_revisions.id = (
               SELECT latest.id
@@ -168,7 +172,10 @@ pub async fn get_revision(
     Path(id): Path<i64>,
     jar: CookieJar,
 ) -> Result<Json<GameDetails>, (StatusCode, String)> {
-    require_admin(&db, &jar)?;
+    let user = current_user(&db, &jar)?.ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Faça login para consultar uma revisão".to_string(),
+    ))?;
     let conn = lock_db(&db)?;
 
     let revision = conn
@@ -177,8 +184,9 @@ pub async fn get_revision(
             SELECT
                 games.id,
                 game_revisions.id,
-                games.title,
-                games.description,
+                game_revisions.revision_number,
+                game_revisions.title,
+                game_revisions.description,
                 game_revisions.source_code,
                 game_revisions.status,
                 game_revisions.min_players,
@@ -188,8 +196,10 @@ pub async fn get_revision(
                 games.is_featured,
                 game_revisions.review_message,
                 game_revisions.created_at,
+                game_revisions.updated_at,
+                game_revisions.submitted_at,
                 game_revisions.reviewed_at,
-                games.thumbnail IS NOT NULL,
+                game_revisions.thumbnail IS NOT NULL,
                 runtime_builds.id,
                 runtime_builds.runtime,
                 runtime_builds.display_name,
@@ -200,8 +210,9 @@ pub async fn get_revision(
             JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
             LEFT JOIN users ON users.id = games.author_id
             WHERE game_revisions.id = ?1
+              AND (games.author_id = ?2 OR ?3 = 1)
             ",
-            [id],
+            rusqlite::params![id, user.id, i64::from(user.is_admin)],
             game_details_from_row,
         )
         .optional()
@@ -211,6 +222,91 @@ pub async fn get_revision(
         Some(revision) => Ok(Json(revision)),
         None => Err((StatusCode::NOT_FOUND, "Revisão não encontrada".into())),
     }
+}
+
+pub async fn list_my_games(
+    State(db): State<Db>,
+    jar: CookieJar,
+) -> Result<Json<Vec<OwnedGame>>, (StatusCode, String)> {
+    let user = current_user(&db, &jar)?.ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Faça login para consultar seus jogos".to_string(),
+    ))?;
+    let conn = lock_db(&db)?;
+    let mut statement = conn
+        .prepare(
+            "
+            SELECT
+                games.id,
+                games.archived_at,
+                game_revisions.id,
+                game_revisions.revision_number,
+                game_revisions.title,
+                game_revisions.description,
+                game_revisions.status,
+                game_revisions.min_players,
+                game_revisions.max_players,
+                game_revisions.review_message,
+                game_revisions.created_at,
+                game_revisions.updated_at,
+                game_revisions.submitted_at,
+                game_revisions.reviewed_at,
+                game_revisions.thumbnail IS NOT NULL,
+                runtime_builds.id,
+                runtime_builds.display_name,
+                runtime_builds.display_version
+            FROM games
+            JOIN game_revisions ON game_revisions.game_id = games.id
+            JOIN runtime_builds ON runtime_builds.id = game_revisions.runtime_build_id
+            WHERE games.author_id = ?1
+            ORDER BY games.id DESC, game_revisions.revision_number DESC
+            ",
+        )
+        .map_err(internal_error)?;
+    let rows = statement
+        .query_map([user.id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                OwnedRevision {
+                    revision_id: row.get(2)?,
+                    revision_number: row.get(3)?,
+                    title: row.get(4)?,
+                    description: row.get(5)?,
+                    status: row.get(6)?,
+                    min_players: row.get(7)?,
+                    max_players: row.get(8)?,
+                    review_message: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                    submitted_at: row.get(12)?,
+                    reviewed_at: row.get(13)?,
+                    has_thumbnail: row.get::<_, i64>(14)? != 0,
+                    runtime_build_id: row.get(15)?,
+                    runtime_name: row.get(16)?,
+                    runtime_version: row.get(17)?,
+                },
+            ))
+        })
+        .map_err(internal_error)?;
+
+    let mut games: Vec<OwnedGame> = Vec::new();
+    for row in rows {
+        let (game_id, archived_at, revision) = row.map_err(internal_error)?;
+        if let Some(game) = games.last_mut()
+            && game.id == game_id
+        {
+            game.revisions.push(revision);
+        } else {
+            games.push(OwnedGame {
+                id: game_id,
+                archived_at,
+                revisions: vec![revision],
+            });
+        }
+    }
+
+    Ok(Json(games))
 }
 
 fn lock_db(
@@ -266,24 +362,27 @@ fn game_details_from_row(row: &Row<'_>) -> rusqlite::Result<GameDetails> {
     Ok(GameDetails {
         id: row.get(0)?,
         revision_id: row.get(1)?,
-        title: row.get(2)?,
-        description: row.get(3)?,
-        source_code: row.get(4)?,
-        status: row.get(5)?,
-        min_players: row.get(6)?,
-        max_players: row.get(7)?,
-        author_id: row.get(8)?,
-        author_name: row.get(9)?,
-        is_featured: row.get::<_, i64>(10)? != 0,
-        review_message: row.get(11)?,
-        created_at: row.get(12)?,
-        reviewed_at: row.get(13)?,
-        has_thumbnail: row.get::<_, i64>(14)? != 0,
-        runtime_build_id: row.get(15)?,
-        runtime: row.get(16)?,
-        runtime_name: row.get(17)?,
-        runtime_version: row.get(18)?,
-        source_extension: row.get(19)?,
+        revision_number: row.get(2)?,
+        title: row.get(3)?,
+        description: row.get(4)?,
+        source_code: row.get(5)?,
+        status: row.get(6)?,
+        min_players: row.get(7)?,
+        max_players: row.get(8)?,
+        author_id: row.get(9)?,
+        author_name: row.get(10)?,
+        is_featured: row.get::<_, i64>(11)? != 0,
+        review_message: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        submitted_at: row.get(15)?,
+        reviewed_at: row.get(16)?,
+        has_thumbnail: row.get::<_, i64>(17)? != 0,
+        runtime_build_id: row.get(18)?,
+        runtime: row.get(19)?,
+        runtime_name: row.get(20)?,
+        runtime_version: row.get(21)?,
+        source_extension: row.get(22)?,
     })
 }
 
@@ -321,8 +420,7 @@ mod tests {
     fn test_db() -> Arc<Mutex<Connection>> {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        conn.execute_batch(include_str!("../../db/schema.sql"))
-            .unwrap();
+        crate::db::initialize_schema(&conn).unwrap();
         Arc::new(Mutex::new(conn))
     }
 
@@ -345,11 +443,12 @@ mod tests {
             conn.execute(
                 "
                 INSERT INTO game_revisions
-                    (game_id, runtime_build_id, source_code, status, min_players, max_players, review_message, reviewed_at)
+                    (game_id, revision_number, runtime_build_id, title, description,
+                     source_code, status, min_players, max_players, review_message, reviewed_at)
                 VALUES
-                    (1, 'sgleam-dev', 'segredo antigo', 'approved', 1, 2, 'nota antiga', '2026-01-01 00:00:00'),
-                    (1, 'sgleam-dev', 'segredo atual', 'approved', 2, 4, 'nota atual', '2026-02-01 00:00:00'),
-                    (1, 'sgleam-dev', 'ainda em revisão', 'pending', 8, 8, NULL, NULL)
+                    (1, 1, 'sgleam-dev', 'Jogo', 'Descrição', 'segredo antigo', 'approved', 1, 2, 'nota antiga', '2026-01-01 00:00:00'),
+                    (1, 2, 'sgleam-dev', 'Jogo', 'Descrição', 'segredo atual', 'approved', 2, 4, 'nota atual', '2026-02-01 00:00:00'),
+                    (1, 3, 'sgleam-dev', 'Jogo futuro', 'Descrição futura', 'ainda em revisão', 'pending', 8, 8, NULL, NULL)
                 ",
                 [],
             )

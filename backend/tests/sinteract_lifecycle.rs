@@ -2,6 +2,8 @@ use std::{path::PathBuf, time::Duration};
 
 #[cfg(feature = "embedded-sgleam")]
 use backend::game_runtime::SgleamExecutable;
+#[cfg(feature = "embedded-sgleam")]
+use backend::game_runtime::inspect_sgleam_players;
 use backend::game_runtime::{
     RuntimeSpec, SinteractCommandError, SinteractHandle, SinteractOutput, SinteractPlayer,
     SinteractStatus,
@@ -131,6 +133,49 @@ async fn embedded_sgleam_runs_a_multiplayer_world() {
     assert!(next_beto_scene.width() > beto_width);
 
     runtime.stop().await.unwrap();
+}
+
+#[cfg(feature = "embedded-sgleam")]
+#[tokio::test]
+async fn embedded_sgleam_inspection_reads_world_and_mworld_limits() {
+    let executable = SgleamExecutable::configured(None).unwrap().unwrap();
+    let single = inspect_sgleam_players(
+        executable.path().to_path_buf(),
+        r#"import sgleam/fill
+import sgleam/image
+import sgleam/world
+
+pub fn main() {
+  world.create(0, fn(_) { image.rectangle(10, 10, fill.black) })
+  |> world.run()
+}
+"#
+        .into(),
+        ".gleam".into(),
+    )
+    .await
+    .unwrap();
+    let multiplayer = inspect_sgleam_players(
+        executable.path().to_path_buf(),
+        r#"import sgleam/fill
+import sgleam/image
+import sgleam/mworld
+
+pub fn main() {
+  mworld.create(0, min: 2, max: 4, to_image: fn(_, _) {
+    image.rectangle(10, 10, fill.black)
+  })
+  |> mworld.run()
+}
+"#
+        .into(),
+        ".gleam".into(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((single.min, single.max), (1, 1));
+    assert_eq!((multiplayer.min, multiplayer.max), (2, 4));
 }
 
 async fn next_frame(

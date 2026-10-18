@@ -24,12 +24,35 @@ pub struct MaterializedSource {
 
 impl MaterializedSource {
     pub fn create(spec: &RuntimeSpec, parent: &Path) -> io::Result<Self> {
-        let extension = validate_extension(spec.source_extension())?;
+        Self::create_with_digest(
+            spec.source_code(),
+            spec.source_extension(),
+            spec.source_sha256(),
+            parent,
+        )
+    }
+
+    pub fn create_raw(
+        source_code: &str,
+        source_extension: &str,
+        parent: &Path,
+    ) -> io::Result<Self> {
+        let digest: [u8; 32] = Sha256::digest(source_code.as_bytes()).into();
+        Self::create_with_digest(source_code, source_extension, &digest, parent)
+    }
+
+    fn create_with_digest(
+        source_code: &str,
+        source_extension: &str,
+        digest: &[u8; 32],
+        parent: &Path,
+    ) -> io::Result<Self> {
+        let extension = validate_extension(source_extension)?;
         let directory = create_private_directory(parent)?;
         let source_path = directory.join(format!("game.{extension}"));
 
-        let result = write_source(&source_path, spec.source_code())
-            .and_then(|()| verify_digest(&source_path, spec.source_sha256()));
+        let result = write_source(&source_path, source_code)
+            .and_then(|()| verify_digest(&source_path, digest));
 
         if let Err(error) = result {
             let _ = fs::remove_dir_all(&directory);

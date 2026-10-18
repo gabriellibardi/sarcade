@@ -59,6 +59,7 @@ pub struct JoinQuery {
     pub nickname: String,
     pub host_token: Option<String>,
     pub player_token: Option<String>,
+    pub invite_token: Option<String>,
 }
 
 pub async fn room_ws(
@@ -88,6 +89,7 @@ pub async fn room_ws(
             query.nickname,
             query.host_token,
             query.player_token,
+            query.invite_token,
         )
     })
 }
@@ -99,8 +101,16 @@ async fn handle_room_socket(
     nickname: String,
     host_token: Option<String>,
     player_token: Option<String>,
+    invite_token: Option<String>,
 ) {
-    let join = match service::join_room(&rooms, &code, nickname, host_token, player_token) {
+    let join = match service::join_room_with_invite(
+        &rooms,
+        &code,
+        nickname,
+        host_token,
+        player_token,
+        invite_token,
+    ) {
         Ok(join) => join,
         Err(error) => {
             let message = ServerMessage::Error {

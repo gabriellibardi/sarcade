@@ -35,6 +35,7 @@ pub async fn approve_revision(
             SET
                 status = 'approved',
                 review_message = NULL,
+                updated_at = datetime('now'),
                 reviewed_at = datetime('now')
             WHERE id = ?1
               AND status = 'pending'
@@ -88,6 +89,7 @@ pub async fn reject_revision(
             SET
                 status = 'rejected',
                 review_message = ?2,
+                updated_at = datetime('now'),
                 reviewed_at = datetime('now')
             WHERE id = ?1
               AND status = 'pending'

@@ -72,8 +72,7 @@ mod tests {
     async fn public_profile_contains_only_published_games_and_safe_user_fields() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        conn.execute_batch(include_str!("../db/schema.sql"))
-            .unwrap();
+        crate::db::initialize_schema(&conn).unwrap();
         conn.execute(
             "INSERT INTO users (email, name, avatar) VALUES ('privado@example.com', 'Autor', 'https://example.com/avatar.png')",
             [],
@@ -87,10 +86,11 @@ mod tests {
         conn.execute(
             "
             INSERT INTO game_revisions
-                (game_id, runtime_build_id, source_code, status, reviewed_at)
+                (game_id, revision_number, runtime_build_id, title, description,
+                 source_code, status, reviewed_at)
             VALUES
-                (1, 'sgleam-dev', 'fonte publicada', 'approved', '2026-01-01 00:00:00'),
-                (2, 'sgleam-dev', 'fonte pendente', 'pending', NULL)
+                (1, 1, 'sgleam-dev', 'Publicado', 'Visível', 'fonte publicada', 'approved', '2026-01-01 00:00:00'),
+                (2, 1, 'sgleam-dev', 'Pendente', 'Oculto', 'fonte pendente', 'pending', NULL)
             ",
             [],
         )

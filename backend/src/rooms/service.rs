@@ -24,6 +24,7 @@ const MAX_NICKNAME_LENGTH: usize = 30;
 pub struct CreatedRoom {
     pub code: String,
     pub host_token: String,
+    pub invite_token: Option<String>,
 }
 
 pub struct JoinRoom {
@@ -51,12 +52,32 @@ pub fn create_sinteract_room(
         store,
         spec,
         RoomRuntime::Sinteract(runtime),
+        false,
         |store, code, tx| {
             forward_sinteract_statuses(store, code, statuses, tx.clone());
             forward_sinteract_changes(changes, tx);
         },
     )?;
     Ok(created)
+}
+
+pub fn create_sinteract_preview_room(
+    store: &RoomStore,
+    spec: RuntimeSpec,
+    executable: std::path::PathBuf,
+) -> Result<CreatedRoom, RoomError> {
+    let (runtime, statuses) = SinteractHandle::reserve(spec.clone(), executable);
+    let changes = runtime.subscribe();
+    insert_room(
+        store,
+        spec,
+        RoomRuntime::Sinteract(runtime),
+        true,
+        |store, code, tx| {
+            forward_sinteract_statuses(store, code, statuses, tx.clone());
+            forward_sinteract_changes(changes, tx);
+        },
+    )
 }
 
 fn create_room_with_runtime(
@@ -69,6 +90,7 @@ fn create_room_with_runtime(
         store,
         spec,
         RoomRuntime::Legacy(runtime),
+        false,
         |store, code, tx| {
             forward_runtime_outputs(store, code, runtime_outputs, tx);
         },
@@ -79,6 +101,7 @@ fn insert_room(
     store: &RoomStore,
     spec: RuntimeSpec,
     runtime: RoomRuntime,
+    is_preview: bool,
     forward: impl FnOnce(RoomStore, String, broadcast::Sender<ServerMessage>),
 ) -> Result<CreatedRoom, RoomError> {
     let mut rooms = lock_rooms(store)?;
@@ -87,6 +110,7 @@ fn insert_room(
 
     let code = generate_unique_room_code(&rooms);
     let host_token = random_token(32);
+    let invite_token = is_preview.then(|| random_token(32));
     let created_at = Instant::now();
 
     let (tx, _) = broadcast::channel(100);
@@ -96,6 +120,7 @@ fn insert_room(
         spec,
         status: RoomStatus::Preparing,
         host_token: host_token.clone(),
+        invite_token: invite_token.clone(),
         host_player_id: None,
         next_player_id: 1,
         players: Vec::new(),
@@ -112,25 +137,55 @@ fn insert_room(
     forward(store.clone(), code.clone(), tx);
     schedule_empty_room_expiration(store.clone(), code.clone(), created_at);
 
-    Ok(CreatedRoom { code, host_token })
+    Ok(CreatedRoom {
+        code,
+        host_token,
+        invite_token,
+    })
 }
 
-pub fn get_room_snapshot(store: &RoomStore, code: &str) -> Result<RoomSnapshot, RoomError> {
+pub fn get_room_snapshot_with_access(
+    store: &RoomStore,
+    code: &str,
+    invite_token: Option<&str>,
+    player_token: Option<&str>,
+) -> Result<RoomSnapshot, RoomError> {
     let mut rooms = lock_rooms(store)?;
 
     cleanup_empty_expired_rooms(&mut rooms);
 
     let room = rooms.get(code).ok_or(RoomError::NotFound)?;
 
+    let is_returning_player = player_token.is_some_and(|token| {
+        room.players
+            .iter()
+            .any(|player| player.reconnect_token == token)
+    });
+    if !is_returning_player {
+        ensure_invited(room, invite_token, None)?;
+    }
+
     Ok(room_snapshot(room))
 }
 
+#[cfg(test)]
 pub fn join_room(
     store: &RoomStore,
     code: &str,
     nickname: String,
     host_token: Option<String>,
     player_token: Option<String>,
+) -> Result<JoinRoom, RoomError> {
+    join_room_with_invite(store, code, nickname, host_token, player_token, None)
+}
+
+pub fn join_room_with_invite(
+    store: &RoomStore,
+    code: &str,
+    nickname: String,
+    host_token: Option<String>,
+    player_token: Option<String>,
+    invite_token: Option<String>,
 ) -> Result<JoinRoom, RoomError> {
     let mut rooms = lock_rooms(store)?;
 
@@ -141,6 +196,8 @@ pub fn join_room(
     if let Some(player_token) = player_token {
         return reconnect_player(room, &player_token);
     }
+
+    ensure_invited(room, invite_token.as_deref(), host_token.as_deref())?;
 
     let nickname = validate_nickname(&nickname)?;
 
@@ -252,6 +309,21 @@ fn reconnect_player(room: &mut Room, player_token: &str) -> Result<JoinRoom, Roo
         room: snapshot,
         rx,
     })
+}
+
+fn ensure_invited(
+    room: &Room,
+    invite_token: Option<&str>,
+    host_token: Option<&str>,
+) -> Result<(), RoomError> {
+    let Some(expected) = room.invite_token.as_deref() else {
+        return Ok(());
+    };
+    if invite_token == Some(expected) || host_token == Some(room.host_token.as_str()) {
+        Ok(())
+    } else {
+        Err(RoomError::InvalidInviteToken)
+    }
 }
 
 pub fn validate_nickname(nickname: &str) -> Result<String, RoomError> {
@@ -703,10 +775,21 @@ fn ensure_current_connection(
 }
 
 fn room_snapshot(room: &Room) -> RoomSnapshot {
+    let join_error = match room.status {
+        RoomStatus::Running => Some(RoomError::AlreadyRunning.message().to_string()),
+        RoomStatus::Failed => Some(RoomError::RuntimeUnavailable.message().to_string()),
+        RoomStatus::Preparing | RoomStatus::Waiting
+            if room.players.len() >= room.spec.max_players() as usize =>
+        {
+            Some(RoomError::Full.message().to_string())
+        }
+        RoomStatus::Preparing | RoomStatus::Waiting => None,
+    };
     RoomSnapshot {
         code: room.code.clone(),
         game_id: room.spec.game_id(),
         sinteract: matches!(room.runtime, RoomRuntime::Sinteract(_)),
+        is_preview: room.invite_token.is_some(),
         status: room.status.clone(),
         min_players: room.spec.min_players(),
         max_players: room.spec.max_players(),
@@ -714,6 +797,8 @@ fn room_snapshot(room: &Room) -> RoomSnapshot {
         can_start: room.host_player_id.is_some()
             && room.status == RoomStatus::Waiting
             && room.players.len() >= room.spec.min_players() as usize,
+        can_join: join_error.is_none(),
+        join_error,
     }
 }
 
@@ -832,8 +917,8 @@ mod tests {
 
     use super::{
         CreatedRoom, create_room_with_runtime, expire_disconnected_room_after,
-        expire_empty_room_after, join_room, kick_player, leave_room, promote_host, start_room,
-        validate_nickname,
+        expire_empty_room_after, get_room_snapshot_with_access, join_room, join_room_with_invite,
+        kick_player, leave_room, promote_host, start_room, validate_nickname,
     };
     use crate::rooms::{RoomError, RoomStatus, ServerMessage, new_store};
 
@@ -849,6 +934,56 @@ mod tests {
             validate_nickname(&"á".repeat(31)),
             Err(RoomError::NicknameTooLong)
         ));
+    }
+
+    #[tokio::test]
+    async fn preview_room_requires_its_invite_but_allows_the_host() {
+        let store = new_store();
+        let created = create_test_room(&store, runtime_spec());
+        {
+            let mut rooms = store.lock().unwrap();
+            rooms.get_mut(&created.code).unwrap().invite_token = Some("convite-secreto".into());
+        }
+
+        assert!(matches!(
+            get_room_snapshot_with_access(&store, &created.code, None, None),
+            Err(RoomError::InvalidInviteToken)
+        ));
+        assert!(
+            get_room_snapshot_with_access(&store, &created.code, Some("convite-secreto"), None,)
+                .is_ok()
+        );
+        assert!(matches!(
+            join_room(&store, &created.code, "Convidada".into(), None, None),
+            Err(RoomError::InvalidInviteToken)
+        ));
+        let invited = join_room_with_invite(
+            &store,
+            &created.code,
+            "Convidada".into(),
+            None,
+            None,
+            Some("convite-secreto".into()),
+        )
+        .unwrap();
+        assert!(get_room_snapshot_with_access(
+            &store,
+            &created.code,
+            None,
+            Some(&invited.player_token),
+        )
+        .is_ok());
+        assert!(
+            join_room_with_invite(
+                &store,
+                &created.code,
+                "Autora".into(),
+                Some(created.host_token),
+                None,
+                None,
+            )
+            .is_ok()
+        );
     }
 
     #[tokio::test]

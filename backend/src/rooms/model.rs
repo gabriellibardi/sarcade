@@ -18,6 +18,7 @@ pub struct Room {
     pub status: RoomStatus,
 
     pub host_token: String,
+    pub invite_token: Option<String>,
     pub host_player_id: Option<u64>,
 
     pub next_player_id: u64,
@@ -57,11 +58,14 @@ pub struct RoomSnapshot {
     pub code: String,
     pub game_id: i64,
     pub sinteract: bool,
+    pub is_preview: bool,
     pub status: RoomStatus,
     pub min_players: i64,
     pub max_players: i64,
     pub players: Vec<Player>,
     pub can_start: bool,
+    pub can_join: bool,
+    pub join_error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -176,6 +180,7 @@ pub enum RoomError {
     RuntimeUnavailable,
     RuntimePreparing,
     InvalidPlayerToken,
+    InvalidInviteToken,
     ConnectionReplaced,
 }
 
@@ -196,6 +201,7 @@ impl RoomError {
             RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
             RoomError::RuntimePreparing => "Runtime da partida ainda está sendo preparado",
             RoomError::InvalidPlayerToken => "Token de reconexão inválido",
+            RoomError::InvalidInviteToken => "Este convite de teste é inválido",
             RoomError::ConnectionReplaced => "Esta conexão foi substituída por uma reconexão",
         }
     }
