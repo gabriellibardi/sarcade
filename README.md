@@ -58,6 +58,28 @@ mas `PUBLIC_BASE_URL` estiver ausente, o login fica desabilitado em vez de usar 
 - `GET /api/games/{id}` expõe apenas os metadados públicos da versão aprovada. Código-fonte e
   informações da revisão ficam restritos às rotas administrativas de revisão.
 
+## Fluxo do autor e testes privados
+
+- O envio inicial cria um rascunho. O autor pode conferir o código, editar os metadados e testar
+  uma partida antes de enviar a versão para revisão.
+- O número mínimo e máximo de jogadores não é digitado no formulário. O backend inicia o Sgleam
+  somente até o `hello` do Sinteract, lê o intervalo declarado pelo `world`/`mworld` e encerra o
+  processo antes de admitir jogadores ou iniciar o laço do jogo. A inspeção é repetida ao salvar,
+  portanto o servidor não confia no valor exibido pelo navegador.
+- A página **Meus jogos** preserva o histórico de rascunhos e revisões pendentes, aprovadas,
+  rejeitadas ou retiradas. Editar uma revisão pendente a retira da fila e cria uma nova versão em
+  rascunho; uma rejeição também pode originar uma nova versão sem apagar a justificativa anterior.
+- Salas de teste usam exatamente a revisão escolhida, mesmo sem publicação. Elas recebem um token
+  de convite aleatório no link; somente o autor, um administrador ou quem recebeu esse link pode
+  consultar e entrar na sala.
+- A detecção automática e as salas de teste estão disponíveis para Sgleam. Builds Spython continuam
+  visíveis no cadastro de runtimes, mas esse fluxo retorna um erro explícito enquanto não houver um
+  contrato equivalente para descobrir a quantidade de jogadores.
+
+A página da sala consulta o servidor antes de pedir o nickname. Assim, convite inválido, sala cheia,
+partida já iniciada ou runtime indisponível são mostrados assim que o link é aberto. A validação é
+repetida no WebSocket para cobrir corridas entre a consulta e a entrada.
+
 ## Administradores
 
 `ADMIN_EMAILS` é a fonte de verdade para a função de administrador. Exemplo com mais de uma

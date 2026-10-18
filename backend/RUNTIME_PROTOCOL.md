@@ -70,6 +70,13 @@ do servidor e é removido ao final. A fixture usa um subcomando privado diferent
 apenas para os testes; ela não é escolhida silenciosamente quando o executável
 real está ausente.
 
+O mesmo `Hello` é usado para inspecionar uma submissão antes de persistir seus
+limites de participantes. Nesse modo, o backend materializa o código em outro
+diretório privado, inicia uma sessão, lê somente o `PlayerRange` anunciado e
+encerra o filho. Nenhuma lista de jogadores ou mensagem `Start` é enviada, logo
+o laço de `world`/`mworld` não começa. A inspeção tem timeout de 15 segundos e
+limita o diagnóstico capturado de `stderr` a 32 KiB.
+
 Uma tarefa Tokio possui o processo, os dois pipes, o relógio e os cores do
 Sinteract; não há uma thread dedicada por partida. fd 3 e fd 4 carregam o
 protocolo. `stdin` e `stdout` não carregam mensagens da sessão e são

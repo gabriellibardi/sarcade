@@ -23,12 +23,21 @@ Ao criar uma sala, o backend seleciona a revisão aprovada mais recente e o
 Uma aprovação posterior no SQLite não altera uma sala existente. O código e
 o token de cada participante não fazem parte de `RoomSnapshot` nem de logs.
 
-O backend escolhe o runtime Sinteract para builds `sgleam` quando
-`SGLEAM_EXECUTABLE` está configurado; sem essa variável, mantém o runtime
-reserva JSON/SVG. Nos dois caminhos, o subprocesso nasce na criação da sala e
-o `Start` reutiliza o processo existente. O runtime reserva passa a `Waiting`
-quando o processo e os pipes estão disponíveis. O caminho Sinteract espera um
-`Hello` válido e confere seus limites antes de liberar a sala.
+O backend escolhe o runtime Sinteract para builds `sgleam` quando possui um
+executável Sgleam: o build de release incorpora um, enquanto um build de
+desenvolvimento pode recebê-lo por `SGLEAM_EXECUTABLE`. Sem nenhuma das duas
+formas, mantém o runtime reserva JSON/SVG. Nos dois caminhos, o subprocesso
+nasce na criação da sala e o `Start` reutiliza o processo existente. O runtime
+reserva passa a `Waiting` quando o processo e os pipes estão disponíveis. O
+caminho Sinteract espera um `Hello` válido e confere seus limites antes de
+liberar a sala.
+
+Uma sala pública fixa a revisão aprovada mais recente. Uma sala privada de
+teste fixa a revisão exata escolhida pelo autor ou por um administrador, mesmo
+quando ela está em rascunho, pendente ou rejeitada. O servidor gera um token de
+convite aleatório para a sala privada e o exige tanto na consulta HTTP quanto
+na primeira conexão WebSocket. Depois da entrada, o token individual de
+reconexão também autoriza a consulta e recupera somente o assento já existente.
 
 Builds marcados como `unavailable` e versões explícitas de protocolo
 incompatíveis levam a sala a `Failed` antes do `Start`. Builds de
@@ -41,6 +50,11 @@ Nenhum nome ou caminho fornecido pelo autor entra diretamente no comando. O
 diretório permanece vivo pela duração do subprocesso e é removido ao final.
 
 ### Lobby, assentos e reconexão
+
+Antes de mostrar o formulário de entrada, o frontend consulta um snapshot que
+informa `can_join` e `join_error`. Sala cheia, partida iniciada e runtime
+indisponível são apresentados nesse momento; a entrada WebSocket repete todas
+as validações porque a situação pode mudar depois da consulta.
 
 Enquanto a sala está em `waiting`, uma conexão sem `player_token` cria um
 participante. O servidor atribui o `player_id`; o cliente nunca escolhe esse
