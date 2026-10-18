@@ -95,3 +95,8 @@ subcomando privado `sinteract-test-engine`. Essa fixture implementa a sessão
 Sinteract real e nunca é selecionada por uma sala de produção. O teste com a
 feature `embedded-sgleam` executa um `mworld` de dois jogadores no executável
 incorporado e valida quadros distintos e evolução lógica.
+
+`make check` também compila o runtime fixado e executa automaticamente os
+cenários `embedded_sgleam`: identidade do executável, inspeção de limites de
+`world`/`mworld` e partida com dois participantes. Assim, a integração real não
+depende apenas do teste manual em navegadores.

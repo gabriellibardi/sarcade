@@ -177,7 +177,10 @@ isso ambos funcionam em distribuições como o NixOS sem um carregador dinâmico
 GNU. O binário autocontido será criado em
 `backend/target/x86_64-unknown-linux-musl/release/backend`.
 
-Use `make check` para executar as verificações do frontend, os testes Rust e o Clippy.
+Use `make check` para executar as verificações do frontend, os testes Rust, o
+Clippy e os cenários integrados no Sgleam incorporado. Estes últimos compilam
+programas `world` e `mworld`, inspecionam seus limites e executam uma sessão
+multiplayer com perspectivas distintas para dois participantes.
 
 ### Identidade do runtime
 

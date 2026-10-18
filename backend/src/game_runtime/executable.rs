@@ -224,7 +224,7 @@ mod tests {
 
     #[cfg(feature = "embedded-sgleam")]
     #[test]
-    fn the_embedded_executable_runs_and_is_removed_with_its_owner() {
+    fn embedded_sgleam_executable_matches_the_pinned_build_and_is_cleaned_up() {
         let executable = SgleamExecutable::configured(None).unwrap().unwrap();
         let path = executable.path().to_path_buf();
         let directory = path.parent().unwrap().to_path_buf();
