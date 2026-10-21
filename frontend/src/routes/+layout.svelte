@@ -15,7 +15,7 @@
 	<link rel="icon" href={logotipo} />
 	<meta
 		name="description"
-		content="Sarcade: jogos educacionais criados com linguagens para estudantes."
+		content="Sarcade: crie, compartilhe e jogue jogos educacionais no navegador."
 	/>
 </svelte:head>
 

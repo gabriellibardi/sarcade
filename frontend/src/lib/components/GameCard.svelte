@@ -9,8 +9,14 @@
 </script>
 
 <article
-	class="group flex h-full flex-col overflow-hidden border-2 border-arcade-line bg-arcade-panel shadow-[6px_6px_0_#511243] transition duration-150 hover:-translate-y-1 hover:border-arcade-red hover:shadow-[8px_8px_0_#511243]"
+	class="group relative flex h-full flex-col overflow-hidden border-2 border-arcade-line bg-arcade-panel shadow-[6px_6px_0_#511243] transition duration-150 focus-within:-translate-y-1 focus-within:border-arcade-red focus-within:shadow-[8px_8px_0_#511243] hover:-translate-y-1 hover:border-arcade-red hover:shadow-[8px_8px_0_#511243]"
 >
+	<a
+		href={resolve('/games/[id]', { id: String(game.id) })}
+		class="absolute inset-0 z-10"
+		aria-label={`Abrir detalhes de ${game.title}`}
+	></a>
+
 	<div class="relative aspect-[16/9] overflow-hidden bg-[#181719]">
 		{#if game.has_thumbnail}
 			<img
@@ -51,11 +57,8 @@
 
 	<div class="flex flex-1 flex-col p-5">
 		<div class="mb-3 flex items-start justify-between gap-3">
-			<h3 class="text-xl font-black tracking-tight text-slate-950">
-				<a
-					href={resolve('/games/[id]', { id: String(game.id) })}
-					class="hover:text-indigo-300 hover:underline">{game.title}</a
-				>
+			<h3 class="text-xl font-black tracking-tight text-slate-950 group-hover:text-indigo-300">
+				{game.title}
 			</h3>
 			<span
 				class="status-chip shrink-0 bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600"
@@ -72,7 +75,7 @@
 					<p class="truncate">
 						por <a
 							href={resolve('/users/[id]', { id: String(game.author_id) })}
-							class="font-bold text-slate-700 hover:text-indigo-300 hover:underline"
+							class="relative z-20 font-bold text-slate-700 hover:text-indigo-300 hover:underline"
 							>{game.author_name}</a
 						>
 					</p>
@@ -82,10 +85,7 @@
 				<p class="truncate">{game.runtime_version}</p>
 			</div>
 
-			<a
-				href={resolve('/games/[id]', { id: String(game.id) })}
-				class="primary-button shrink-0 px-4 py-2 text-xs">Jogar</a
-			>
+			<span class="primary-button shrink-0 px-4 py-2 text-xs" aria-hidden="true">Jogar</span>
 		</div>
 	</div>
 </article>
