@@ -218,7 +218,12 @@
 					{/if}
 				</div>
 				{#if actionMessage}<div class="mt-4">
-						<Alert tone="success" message={actionMessage} />
+						<Alert
+							tone="success"
+							message={actionMessage}
+							dismissAfter={5000}
+							onDismiss={() => (actionMessage = '')}
+						/>
 					</div>{/if}
 				{#if actionError}<div class="mt-4"><Alert tone="error" message={actionError} /></div>{/if}
 			</aside>

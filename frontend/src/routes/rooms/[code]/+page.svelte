@@ -485,7 +485,7 @@
 		{/if}
 
 		{#if message}
-			<Alert tone="info" {message} />
+			<Alert tone="info" {message} dismissAfter={5000} onDismiss={() => (message = '')} />
 		{/if}
 
 		{#if canShowJoinForm}

@@ -303,7 +303,12 @@
 					{/if}
 				</section>
 
-				{#if actionMessage}<Alert tone="success" message={actionMessage} />{/if}
+				{#if actionMessage}<Alert
+						tone="success"
+						message={actionMessage}
+						dismissAfter={5000}
+						onDismiss={() => (actionMessage = '')}
+					/>{/if}
 				{#if actionError}<Alert tone="error" message={actionError} />{/if}
 			</aside>
 		</div>
