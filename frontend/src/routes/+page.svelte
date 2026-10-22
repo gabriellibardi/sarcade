@@ -38,27 +38,19 @@
 	<title>Sarcade</title>
 </svelte:head>
 
-<main>
-	<section class="relative overflow-hidden border-b-2 border-arcade-line">
-		<div class="mx-auto max-w-6xl px-5 py-16 sm:px-6 lg:py-24">
+<main class="min-h-[calc(100svh-5rem)]">
+	<section>
+		<div class="mx-auto max-w-5xl px-5 pt-16 pb-12 sm:px-6 lg:pt-20 lg:pb-14">
 			<h1 class="flex justify-center"><BrandWordmark size="hero" /></h1>
-
-			<div class="mt-10 flex flex-wrap justify-center gap-4">
-				<a href={resolve('/catalog')} class="primary-button">Escolher jogo</a>
-				<a href={resolve('/submit')} class="secondary-button">Publicar meu jogo</a>
-			</div>
 		</div>
 	</section>
 
-	<section class="bg-[#101010]/70">
-		<div class="mx-auto max-w-6xl px-5 py-16 sm:px-6 lg:py-20">
-			<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
-				<div>
-					<p class="eyebrow">Now playing</p>
-					<h2 class="display-title mt-3 text-4xl text-slate-950">Jogos em destaque</h2>
-					<p class="mt-3 text-slate-600">Projetos aprovados e prontos para receber jogadores.</p>
-				</div>
-				<a href={resolve('/catalog')} class="secondary-button py-2.5 text-sm">Ver catálogo</a>
+	<section>
+		<div class="mx-auto max-w-4xl px-5 pb-24 sm:px-6">
+			<div class="mb-5 flex items-center justify-between gap-4">
+				<h2 class="text-xs font-medium tracking-[0.08em] text-slate-800 uppercase">Destaques</h2>
+				<a href={resolve('/catalog')} class="secondary-button px-5 py-2 text-[11px]">Ver catálogo</a
+				>
 			</div>
 
 			{#if isLoading}
@@ -74,9 +66,9 @@
 					<a href={resolve('/pending')} class="secondary-button">Ver revisões</a>
 				</EmptyState>
 			{:else}
-				<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+				<div class="grid gap-4 sm:grid-cols-3">
 					{#each previewGames as game (game.id)}
-						<GameCard {game} />
+						<GameCard {game} variant="compact" />
 					{/each}
 				</div>
 			{/if}

@@ -5,7 +5,7 @@
 
 	const sizeClasses = {
 		header: 'h-8 w-auto',
-		hero: 'h-auto w-full max-w-5xl'
+		hero: 'h-auto w-full max-w-3xl'
 	};
 </script>
 
