@@ -168,8 +168,8 @@
 			class="mt-7 grid animate-pulse gap-8 lg:grid-cols-[1.3fr_0.7fr]"
 			aria-label="Carregando jogo"
 		>
-			<div class="h-[34rem] border-2 border-arcade-line bg-arcade-panel"></div>
-			<div class="h-80 border-2 border-arcade-line bg-arcade-panel"></div>
+			<div class="h-[34rem] rounded-xl border border-white/10 bg-arcade-panel/85"></div>
+			<div class="h-80 rounded-xl border border-white/10 bg-arcade-panel/85"></div>
 		</div>
 	{:else if notFound}
 		<div class="mt-7">
@@ -185,7 +185,7 @@
 	{:else if game}
 		<div class="mt-7 grid items-start gap-8 lg:grid-cols-[1.3fr_0.7fr]">
 			<article class="surface-card overflow-hidden">
-				<div class="aspect-[16/9] bg-[linear-gradient(135deg,#25181c_0_50%,#191c2d_50%)]">
+				<div class="aspect-[16/9] bg-[linear-gradient(145deg,#171b31,#28121f)]">
 					{#if game.has_thumbnail}
 						<img
 							src={`/api/games/${game.id}/thumbnail`}
@@ -195,7 +195,7 @@
 					{:else}
 						<div class="flex h-full items-center justify-center">
 							<span
-								class="display-title border-2 border-slate-300 bg-arcade-bg px-10 py-6 text-7xl text-arcade-ink shadow-[7px_7px_0_#3d1a62]"
+								class="display-title rounded-xl border border-white/15 bg-arcade-bg/70 px-10 py-6 text-7xl text-arcade-ink"
 							>
 								{game.title.slice(0, 1).toUpperCase()}
 							</span>
@@ -223,7 +223,7 @@
 						{game.description}
 					</p>
 
-					<dl class="mt-8 grid gap-4 border-t-2 border-slate-200 pt-6 sm:grid-cols-3">
+					<dl class="mt-8 grid gap-4 border-t border-white/10 pt-6 sm:grid-cols-3">
 						<div>
 							<dt class="text-xs font-bold tracking-wide text-slate-400 uppercase">Jogadores</dt>
 							<dd class="mt-1 font-bold text-slate-800">{playerLabel}</dd>
@@ -253,7 +253,7 @@
 
 			<aside class="arcade-panel-blue p-6 lg:sticky lg:top-24">
 				{#if $authState.user?.is_admin}
-					<div class="mb-6 flex flex-wrap gap-2 border-b-2 border-indigo-200 pb-6">
+					<div class="mb-6 flex flex-wrap gap-2 border-b border-indigo-200/50 pb-6">
 						<a
 							href={resolve('/pending/[id]', { id: String(game.revision_id) })}
 							class="secondary-button px-4 py-2 text-sm">Ver código e editar</a
@@ -308,7 +308,7 @@
 					<div class="mt-4"><Alert tone="error" message={createError} /></div>
 				{/if}
 
-				<div class="mt-6 border-t-2 border-indigo-200 pt-6">
+				<div class="mt-6 border-t border-indigo-200/50 pt-6">
 					<h3 class="font-black text-slate-950">Já recebeu um código?</h3>
 					<form
 						onsubmit={(event) => {

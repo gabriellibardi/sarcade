@@ -38,15 +38,18 @@
 	});
 
 	const toneClasses: Record<Tone, string> = {
-		info: 'border-indigo-300 bg-[#1c2035] text-indigo-900 shadow-[4px_4px_0_#3d1a62]',
-		success: 'border-emerald-600 bg-[#14281f] text-emerald-100 shadow-[4px_4px_0_#143b2c]',
-		warning: 'border-amber-500 bg-[#2b2112] text-amber-100 shadow-[4px_4px_0_#5b3c13]',
-		error: 'border-red-500 bg-[#2d181a] text-red-100 shadow-[4px_4px_0_#511243]'
+		info: 'border-indigo-300/40 bg-[#11182a]/90 text-indigo-900',
+		success: 'border-emerald-600/50 bg-[#10241c]/90 text-emerald-100',
+		warning: 'border-amber-500/50 bg-[#261e11]/90 text-amber-100',
+		error: 'border-red-500/50 bg-[#291519]/90 text-red-100'
 	};
 </script>
 
 {#if visible}
-	<div class={`border-2 p-5 ${toneClasses[tone]}`} role={tone === 'error' ? 'alert' : 'status'}>
+	<div
+		class={`rounded-xl border p-4 shadow-xl backdrop-blur-md ${toneClasses[tone]}`}
+		role={tone === 'error' ? 'alert' : 'status'}
+	>
 		{#if title}
 			<p class="font-bold">{title}</p>
 		{/if}

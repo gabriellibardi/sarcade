@@ -85,7 +85,7 @@
 				{#each games as game (game.id)}
 					<section class="surface-card overflow-hidden">
 						<header
-							class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-5 py-4"
+							class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4"
 						>
 							<div>
 								<p class="eyebrow">Jogo #{game.id}</p>

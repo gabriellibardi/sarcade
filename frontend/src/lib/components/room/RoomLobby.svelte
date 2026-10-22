@@ -36,9 +36,7 @@
 </script>
 
 <section class="surface-card overflow-hidden">
-	<div
-		class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-6 py-5"
-	>
+	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-5">
 		<div>
 			<p class="text-xs font-bold tracking-widest text-slate-400 uppercase">Lobby</p>
 			<h2 class="display-title mt-2 text-xl text-slate-950">Participantes</h2>
@@ -53,11 +51,11 @@
 			<ul class="space-y-2">
 				{#each room.players as player (player.id)}
 					<li
-						class="flex flex-wrap items-center justify-between gap-3 border-2 border-slate-200 bg-slate-50/70 p-3"
+						class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-50/70 p-3"
 					>
 						<div class="flex min-w-0 items-center gap-3">
 							<span
-								class="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-indigo-300 bg-indigo-100 font-mono text-sm font-black text-indigo-300"
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-300/50 bg-indigo-100 text-sm font-bold text-indigo-300"
 								>{player.id}</span
 							>
 							<div class="min-w-0">
@@ -91,7 +89,7 @@
 		</div>
 
 		<aside
-			class="border-2 border-indigo-300 bg-[#11131d] p-5 text-sm text-slate-300 shadow-[4px_4px_0_#3d1a62]"
+			class="rounded-xl border border-indigo-300/35 bg-[#111522]/85 p-5 text-sm text-slate-300"
 		>
 			<p class="text-xs font-bold tracking-widest text-indigo-300 uppercase">Partida</p>
 			<dl class="mt-4 space-y-3">

@@ -264,7 +264,7 @@
 						</select>
 					</div>
 
-					<div class="grid gap-5 border-t-2 border-slate-200 pt-6 sm:grid-cols-2">
+					<div class="grid gap-5 border-t border-white/10 pt-6 sm:grid-cols-2">
 						<FilePicker
 							id="sourceCode"
 							label={`Código-fonte ${selectedRuntime?.source_extension ?? ''}`}
@@ -282,7 +282,7 @@
 					</div>
 
 					{#if sourceCodeFiles?.length}
-						<div class="border-2 border-slate-200 bg-slate-50 p-4" aria-live="polite">
+						<div class="rounded-lg border border-white/10 bg-slate-50/80 p-4" aria-live="polite">
 							<p class="text-xs font-bold tracking-wide text-slate-400 uppercase">Participantes</p>
 							{#if isInspecting}
 								<p class="mt-2 font-bold text-slate-700">Analisando o código...</p>

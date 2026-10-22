@@ -6,7 +6,7 @@
 <div class="grid gap-5 md:grid-cols-2 lg:grid-cols-3" aria-label="Carregando conteúdo">
 	{#each placeholders as placeholder (placeholder)}
 		<div
-			class="h-96 animate-pulse border-2 border-slate-200 bg-arcade-panel shadow-[6px_6px_0_#2b1027]"
+			class="h-96 animate-pulse rounded-xl border border-white/10 bg-arcade-panel/85 shadow-2xl"
 		></div>
 	{/each}
 </div>

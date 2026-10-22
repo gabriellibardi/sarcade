@@ -21,16 +21,16 @@
 	}
 </script>
 
-<header
-	class="sticky top-0 z-30 border-b-2 border-arcade-line bg-arcade-bg/95 shadow-[0_4px_0_#511243] backdrop-blur-xl"
->
-	<div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-3 sm:px-6">
+<header class="sticky top-0 z-30 border-b border-white/8 bg-[#080b0e]/72 backdrop-blur-xl">
+	<div
+		class="mx-auto grid max-w-5xl grid-cols-[1fr_auto] items-center gap-6 px-5 py-3.5 sm:px-6 lg:grid-cols-[1fr_auto_1fr]"
+	>
 		<a href={resolve('/')} class="flex items-center gap-3" aria-label="Página inicial do Sarcade">
 			<BrandMark size="medium" />
 		</a>
 
-		<div class="hidden flex-1 items-center justify-end gap-2 lg:flex">
-			<nav aria-label="Navegação principal" class="flex items-center gap-1">
+		<div class="hidden lg:contents">
+			<nav aria-label="Navegação principal" class="flex items-center gap-2 justify-self-center">
 				<a href={resolve('/catalog')} class="nav-link">Jogos</a>
 				<a href={resolve('/submit')} class="nav-link">Publicar</a>
 				{#if $authState.user}
@@ -41,15 +41,17 @@
 				{/if}
 			</nav>
 
-			<div class="ml-1 border-l-2 border-arcade-line pl-3">
+			<div class="justify-self-end">
 				{#if $authState.isLoading}
-					<span class="block h-9 w-24 animate-pulse bg-slate-100" aria-label="Verificando login"
+					<span
+						class="block h-9 w-24 animate-pulse rounded-full bg-slate-100"
+						aria-label="Verificando login"
 					></span>
 				{:else if $authState.user}
 					<div class="flex items-center gap-2">
 						<a
 							href={resolve('/users/[id]', { id: String($authState.user.id) })}
-							class="flex items-center gap-2 border border-transparent p-1 transition hover:border-arcade-line hover:bg-slate-100"
+							class="flex items-center gap-2 rounded-full border border-transparent p-1 transition hover:border-white/10 hover:bg-white/5"
 						>
 							<UserAvatar
 								name={$authState.user.name}
@@ -82,13 +84,13 @@
 					<a
 						href="/api/auth/start?return_to=/"
 						rel="external"
-						class="secondary-button px-3 py-2 text-xs"
+						class="primary-button min-w-24 px-5 py-2 text-xs"
 					>
 						Entrar
 					</a>
 				{:else}
 					<span
-						class="border border-arcade-line bg-slate-100 px-3 py-2 font-mono text-[10px] font-semibold text-slate-500 uppercase"
+						class="rounded-full border border-white/10 bg-slate-100/80 px-3 py-2 text-[10px] font-medium text-slate-500"
 						title="Defina as credenciais Google no backend"
 					>
 						Login offline
@@ -99,7 +101,7 @@
 
 		<button
 			type="button"
-			class="ghost-button gap-2 border-arcade-line px-3 py-2 text-xs lg:hidden"
+			class="ghost-button gap-2 border-white/12 px-3 py-2 text-xs lg:hidden"
 			aria-controls="mobile-navigation"
 			aria-expanded={menuOpen}
 			onclick={() => (menuOpen = !menuOpen)}
@@ -120,7 +122,7 @@
 	{#if menuOpen}
 		<div
 			id="mobile-navigation"
-			class="absolute inset-x-0 top-full border-b-2 border-arcade-line bg-arcade-bg p-5 shadow-[0_4px_0_#511243] lg:hidden"
+			class="absolute inset-x-0 top-full border-b border-white/10 bg-[#080b0e]/96 p-5 shadow-2xl backdrop-blur-xl lg:hidden"
 		>
 			<nav aria-label="Navegação principal no celular" class="grid gap-1">
 				<a href={resolve('/catalog')} class="nav-link" onclick={() => (menuOpen = false)}>Jogos</a>
@@ -138,9 +140,11 @@
 				{/if}
 			</nav>
 
-			<div class="mt-4 border-t-2 border-arcade-line pt-4">
+			<div class="mt-4 border-t border-white/10 pt-4">
 				{#if $authState.isLoading}
-					<span class="block h-10 w-full animate-pulse bg-slate-100" aria-label="Verificando login"
+					<span
+						class="block h-10 w-full animate-pulse rounded-full bg-slate-100"
+						aria-label="Verificando login"
 					></span>
 				{:else if $authState.user}
 					<div class="flex items-center justify-between gap-3">
@@ -169,7 +173,7 @@
 					<a
 						href="/api/auth/start?return_to=/"
 						rel="external"
-						class="secondary-button w-full px-3 py-2 text-xs"
+						class="primary-button w-full px-3 py-2 text-xs"
 					>
 						Entrar
 					</a>

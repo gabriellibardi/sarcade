@@ -143,7 +143,7 @@
 					<p class="mt-3 leading-7 whitespace-pre-line text-slate-600">{revision.description}</p>
 				</section>
 				<section class="surface-card overflow-hidden">
-					<div class="border-b-2 border-slate-200 px-6 py-4">
+					<div class="border-b border-white/10 px-6 py-4">
 						<h2 class="text-xl font-black text-slate-950">Código-fonte</h2>
 					</div>
 					<pre
@@ -180,7 +180,7 @@
 						<Alert tone="info" title="Justificativa" message={revision.review_message} />
 					</div>
 				{/if}
-				<div class="mt-5 grid gap-2 border-t-2 border-slate-200 pt-5">
+				<div class="mt-5 grid gap-2 border-t border-white/10 pt-5">
 					<button
 						type="button"
 						onclick={() => void testRevision()}

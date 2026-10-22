@@ -199,7 +199,7 @@
 
 				<section class="surface-card overflow-hidden">
 					<div
-						class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-6 py-4"
+						class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-4"
 					>
 						<h2 class="text-xl font-black text-slate-950">Código-fonte</h2>
 						<code class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600"
@@ -295,7 +295,7 @@
 								type="button"
 								onclick={() => void rejectRevision()}
 								disabled={isReviewing}
-								class="secondary-button border-red-500 bg-[#34191c] text-red-200 shadow-[4px_4px_0_#511243] hover:border-red-400 hover:bg-[#432025]"
+								class="secondary-button border-red-500 bg-[#34191c]/80 text-red-200 shadow-none hover:border-red-400 hover:bg-[#432025]"
 							>
 								Rejeitar
 							</button>

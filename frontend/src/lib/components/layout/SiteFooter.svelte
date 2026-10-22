@@ -3,14 +3,14 @@
 	import BrandMark from '$lib/components/brand/BrandMark.svelte';
 </script>
 
-<footer class="border-t border-arcade-line bg-[#101010]">
+<footer class="border-t border-white/8 bg-[#080b0e]/76 backdrop-blur-xl">
 	<div
-		class="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+		class="mx-auto flex max-w-5xl flex-col gap-6 px-5 py-7 sm:flex-row sm:items-center sm:justify-between sm:px-6"
 	>
 		<a href={resolve('/')} class="flex items-center gap-3" aria-label="Voltar ao início">
 			<BrandMark size="small" />
 			<span>
-				<strong class="display-title block text-xl text-slate-950">Sarcade</strong>
+				<strong class="block text-base font-semibold text-slate-950">Sarcade</strong>
 				<span class="block text-xs text-slate-500">Crie, compartilhe e jogue.</span>
 			</span>
 		</a>
