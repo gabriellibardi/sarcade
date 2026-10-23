@@ -65,7 +65,7 @@
 				{game.title}
 			</h3>
 
-			<div class="mt-auto flex items-center justify-between gap-2 bg-arcade-blue px-2.5 py-1.5">
+			<div class="relative mt-auto flex items-center bg-arcade-blue px-2.5 py-1.5 pr-20">
 				{#if game.author_id && game.author_name}
 					<a
 						href={resolve('/users/[id]', { id: String(game.author_id) })}
@@ -81,7 +81,9 @@
 					</span>
 				{/if}
 
-				<span class="player-count-badge shrink-0 px-2 py-0.5 text-[8px] font-medium">
+				<span
+					class="player-count-badge absolute top-0 right-2 shrink-0 -translate-y-1/2 px-2 py-0.5 text-[8px] font-medium"
+				>
 					{playerLabel}
 				</span>
 			</div>

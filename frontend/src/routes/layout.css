@@ -280,14 +280,28 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		border: 1px solid rgb(151 166 198 / 0.62);
+		border: 1px solid rgb(232 106 113 / 0.78);
 		border-radius: 999px;
-		background: linear-gradient(180deg, #68758f, #4a5773);
+		background: linear-gradient(180deg, #c4515b, #a83340);
 		box-shadow:
-			0 3px 0 #29344f,
-			0 8px 18px rgb(3 8 20 / 0.28);
-		color: #f4f6fb;
+			0 3px 0 #64154f,
+			0 8px 18px rgb(53 8 35 / 0.3);
+		color: #fff;
 		line-height: 1.15;
+	}
+
+	.header-menu {
+		border: 1px solid rgb(91 113 211 / 0.38);
+		border-radius: 0.85rem;
+		background: linear-gradient(145deg, rgb(16 20 34 / 0.98), rgb(28 13 31 / 0.98));
+		box-shadow:
+			0 5px 0 rgb(48 24 85 / 0.9),
+			0 24px 60px rgb(0 0 0 / 0.48);
+		backdrop-filter: blur(20px);
+	}
+
+	.header-menu .nav-link:hover {
+		background: rgb(69 96 199 / 0.18);
 	}
 
 	@media (min-width: 640px) {
