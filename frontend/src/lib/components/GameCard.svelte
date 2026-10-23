@@ -11,7 +11,7 @@
 </script>
 
 <article
-	class="group relative flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1016]/92 shadow-[0_18px_60px_rgb(0_0_0/0.3)] backdrop-blur-md transition duration-200 focus-within:-translate-y-1 focus-within:border-arcade-red/70 hover:-translate-y-1 hover:border-arcade-red/70 hover:shadow-[0_22px_70px_rgb(0_0_0/0.38)]"
+	class={`group relative flex h-full flex-col overflow-hidden transition duration-200 focus-within:-translate-y-1 hover:-translate-y-1 ${isCompact ? 'rounded-[3px] border border-white/8 bg-[#11151d] shadow-[0_16px_40px_rgb(0_0_0/0.38)] focus-within:border-arcade-red/70 hover:border-arcade-red/70 hover:shadow-[0_20px_48px_rgb(0_0_0/0.46)]' : 'rounded-xl border border-white/10 bg-[#0d1016]/92 shadow-[0_18px_60px_rgb(0_0_0/0.3)] backdrop-blur-md focus-within:border-arcade-red/70 hover:border-arcade-red/70 hover:shadow-[0_22px_70px_rgb(0_0_0/0.38)]'}`}
 >
 	<a
 		href={resolve('/games/[id]', { id: String(game.id) })}
@@ -20,7 +20,7 @@
 	></a>
 
 	<div
-		class={`relative overflow-hidden bg-[#11141b] ${isCompact ? 'aspect-[4/3]' : 'aspect-[16/9]'}`}
+		class={`relative overflow-hidden bg-[#11141b] ${isCompact ? 'm-1 aspect-[16/10] rounded-[3px]' : 'aspect-[16/9]'}`}
 	>
 		{#if game.has_thumbnail}
 			<img
@@ -59,53 +59,70 @@
 		{/if}
 	</div>
 
-	<div class={`flex flex-1 flex-col ${isCompact ? 'p-3.5' : 'p-5'}`}>
-		<div class={`flex items-start justify-between gap-3 ${isCompact ? 'mb-1.5' : 'mb-3'}`}>
-			<h3
-				class={`${isCompact ? 'text-base' : 'text-xl'} font-semibold tracking-tight text-slate-950 transition group-hover:text-white`}
-			>
+	{#if isCompact}
+		<div class="flex flex-1 flex-col">
+			<h3 class="truncate px-2.5 py-1.5 text-sm font-medium tracking-tight text-white">
 				{game.title}
 			</h3>
-			{#if !isCompact}
+
+			<div class="mt-auto flex items-center justify-between gap-2 bg-arcade-blue px-2.5 py-1.5">
+				{#if game.author_id && game.author_name}
+					<a
+						href={resolve('/users/[id]', { id: String(game.author_id) })}
+						class="relative z-20 min-w-0 truncate text-[8px] font-medium tracking-wide text-white/85 uppercase hover:text-white hover:underline"
+					>
+						{game.author_name}
+					</a>
+				{:else}
+					<span
+						class="min-w-0 truncate text-[8px] font-medium tracking-wide text-white/70 uppercase"
+					>
+						Autor não informado
+					</span>
+				{/if}
+
+				<span
+					class="shrink-0 rounded-full bg-arcade-red px-2 py-0.5 text-[8px] font-medium text-white"
+				>
+					{playerLabel}
+				</span>
+			</div>
+		</div>
+	{:else}
+		<div class="flex flex-1 flex-col p-5">
+			<div class="mb-3 flex items-start justify-between gap-3">
+				<h3
+					class="text-xl font-semibold tracking-tight text-slate-950 transition group-hover:text-white"
+				>
+					{game.title}
+				</h3>
 				<span
 					class="status-chip shrink-0 bg-slate-100/80 px-2 py-1 text-[10px] font-semibold text-slate-600"
 				>
 					{playerLabel}
 				</span>
-			{/if}
-		</div>
-
-		{#if !isCompact}
-			<p class="line-clamp-3 flex-1 text-sm leading-6 text-slate-600">{game.description}</p>
-		{/if}
-
-		<div
-			class={`flex items-center justify-between gap-3 ${isCompact ? 'mt-auto pt-1' : 'mt-5 border-t border-white/8 pt-4'}`}
-		>
-			<div class={`min-w-0 text-slate-500 ${isCompact ? 'text-[10px]' : 'text-[11px] leading-5'}`}>
-				{#if game.author_id && game.author_name}
-					<p class="truncate">
-						{isCompact ? '' : 'por '}<a
-							href={resolve('/users/[id]', { id: String(game.author_id) })}
-							class="relative z-20 font-medium text-slate-700 hover:text-indigo-300 hover:underline"
-							>{game.author_name}</a
-						>
-					</p>
-				{:else}
-					<p class="truncate">autor não informado</p>
-				{/if}
-				{#if !isCompact}<p class="truncate">{game.runtime_version}</p>{/if}
 			</div>
 
-			{#if isCompact}
-				<span
-					class="status-chip shrink-0 border-arcade-red bg-arcade-red px-2 py-0.5 text-[9px] font-medium text-white"
-				>
-					{playerLabel}
-				</span>
-			{:else}
+			<p class="line-clamp-3 flex-1 text-sm leading-6 text-slate-600">{game.description}</p>
+
+			<div class="mt-5 flex items-center justify-between gap-3 border-t border-white/8 pt-4">
+				<div class="min-w-0 text-[11px] leading-5 text-slate-500">
+					{#if game.author_id && game.author_name}
+						<p class="truncate">
+							por <a
+								href={resolve('/users/[id]', { id: String(game.author_id) })}
+								class="relative z-20 font-medium text-slate-700 hover:text-indigo-300 hover:underline"
+								>{game.author_name}</a
+							>
+						</p>
+					{:else}
+						<p class="truncate">autor não informado</p>
+					{/if}
+					<p class="truncate">{game.runtime_version}</p>
+				</div>
+
 				<span class="primary-button shrink-0 px-4 py-2 text-xs" aria-hidden="true">Jogar</span>
-			{/if}
+			</div>
 		</div>
-	</div>
+	{/if}
 </article>

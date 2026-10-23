@@ -21,7 +21,7 @@
 	}
 </script>
 
-<header class="sticky top-0 z-30 border-b border-white/8 bg-[#080b0e]/72 backdrop-blur-xl">
+<header class="relative z-30 bg-transparent">
 	<div
 		class="mx-auto grid max-w-5xl grid-cols-[1fr_auto] items-center gap-6 px-5 py-3.5 sm:px-6 lg:grid-cols-[1fr_auto_1fr]"
 	>
