@@ -8,9 +8,11 @@
 	}: { title: string; description?: string; children?: Snippet } = $props();
 </script>
 
-<div class="border-2 border-dashed border-slate-300 bg-arcade-panel/75 p-10 text-center sm:p-12">
+<div
+	class="rounded-2xl border border-dashed border-white/15 bg-arcade-panel/75 p-10 text-center shadow-2xl backdrop-blur-md sm:p-12"
+>
 	<div
-		class="mx-auto flex h-12 w-12 items-center justify-center border-2 border-arcade-line bg-slate-100 text-xl text-indigo-300"
+		class="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-slate-100 text-xl text-indigo-300"
 		aria-hidden="true"
 	>
 		◇

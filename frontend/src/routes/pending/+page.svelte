@@ -61,7 +61,9 @@
 		{#if isLoading}
 			<div class="space-y-4" aria-label="Carregando revisões">
 				{#each [1, 2, 3] as placeholder (placeholder)}
-					<div class="h-48 animate-pulse border-2 border-slate-200 bg-arcade-panel"></div>
+					<div
+						class="h-48 animate-pulse rounded-xl border border-white/10 bg-arcade-panel/85"
+					></div>
 				{/each}
 			</div>
 		{:else if error}

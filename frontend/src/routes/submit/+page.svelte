@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { ApiError, apiRequest, errorMessage } from '$lib/api';
 	import { authState, loadAuth } from '$lib/auth';
@@ -8,22 +10,77 @@
 	import UserAvatar from '$lib/components/ui/UserAvatar.svelte';
 	import type { RuntimeBuild } from '$lib/types/runtime';
 
-	type SubmissionResponse = { id: number; revision_id: number };
+	type PlayerInspection = { min_players: number; max_players: number };
+	type SubmissionResponse = PlayerInspection & { id: number; revision_id: number };
 
 	let title = '';
 	let description = '';
-	let minPlayers = 1;
-	let maxPlayers = 1;
 	let runtimeBuilds: RuntimeBuild[] = [];
 	let runtimeBuildId = '';
 	let isLoadingRuntimes = true;
 	let sourceCodeFiles: FileList | null = null;
 	let thumbnailFiles: FileList | null = null;
+	let inspectedFile: File | null = null;
+	let inspectedRuntimeBuildId = '';
+	let playerInspection: PlayerInspection | null = null;
+	let isInspecting = false;
+	let inspectionError = '';
+	let inspectionGeneration = 0;
 	let isSubmitting = false;
 	let statusMessage = '';
 	let isError = false;
 
 	$: selectedRuntime = runtimeBuilds.find((build) => build.id === runtimeBuildId) ?? null;
+	$: void inspectSelection(sourceCodeFiles?.[0] ?? null, selectedRuntime);
+
+	async function inspectSelection(file: File | null, runtime: RuntimeBuild | null) {
+		if (
+			file === inspectedFile &&
+			runtime?.id === inspectedRuntimeBuildId &&
+			(playerInspection || inspectionError)
+		) {
+			return;
+		}
+
+		const generation = ++inspectionGeneration;
+		inspectedFile = file;
+		inspectedRuntimeBuildId = runtime?.id ?? '';
+		playerInspection = null;
+		inspectionError = '';
+
+		if (!file || !runtime) {
+			isInspecting = false;
+			return;
+		}
+
+		if (!file.name.toLowerCase().endsWith(runtime.source_extension.toLowerCase())) {
+			isInspecting = false;
+			inspectionError = `Escolha um arquivo ${runtime.source_extension}.`;
+			return;
+		}
+
+		isInspecting = true;
+		const formData = new FormData();
+		formData.append('runtime_build_id', runtime.id);
+		formData.append('source_code', file);
+
+		try {
+			const result = await apiRequest<PlayerInspection>('/api/games/inspect', {
+				method: 'POST',
+				body: formData
+			});
+			if (generation === inspectionGeneration) playerInspection = result;
+		} catch (inspectError) {
+			if (generation !== inspectionGeneration) return;
+			if (inspectError instanceof ApiError && inspectError.status === 401) {
+				await loadAuth(true);
+			}
+			inspectionError = errorMessage(inspectError, 'Não foi possível analisar o código.');
+			console.error(inspectError);
+		} finally {
+			if (generation === inspectionGeneration) isInspecting = false;
+		}
+	}
 
 	async function loadRuntimes() {
 		isLoadingRuntimes = true;
@@ -56,7 +113,8 @@
 		) {
 			return `Escolha um arquivo ${selectedRuntime.source_extension}.`;
 		}
-		if (maxPlayers < minPlayers) return 'O máximo de jogadores deve ser maior ou igual ao mínimo.';
+		if (isInspecting) return 'Aguarde a análise do código.';
+		if (!playerInspection) return inspectionError || 'Analise o código antes de enviar.';
 		return null;
 	}
 
@@ -80,8 +138,6 @@
 		formData.append('title', title.trim());
 		formData.append('description', description.trim());
 		formData.append('runtime_build_id', runtime.id);
-		formData.append('min_players', String(minPlayers));
-		formData.append('max_players', String(maxPlayers));
 		formData.append('source_code', sourceCode);
 
 		if (thumbnailFiles?.length) {
@@ -94,13 +150,7 @@
 				body: formData
 			});
 
-			statusMessage = `Jogo #${result.id}, revisão #${result.revision_id}, enviado e aguardando aprovação.`;
-			title = '';
-			description = '';
-			minPlayers = 1;
-			maxPlayers = 1;
-			sourceCodeFiles = null;
-			thumbnailFiles = null;
+			await goto(resolve('/my-games/revisions/[id]', { id: String(result.revision_id) }));
 		} catch (submitError) {
 			if (submitError instanceof ApiError && submitError.status === 401) {
 				await loadAuth(true);
@@ -128,7 +178,7 @@
 	<PageHeader
 		eyebrow="Compartilhe sua criação"
 		title="Publicar jogo"
-		description="Envie o código, a apresentação e os limites de participantes. A equipe revisará o projeto antes de publicá-lo."
+		description="Envie o código e a apresentação. O Sarcade identificará os participantes e salvará um rascunho para você testar antes da revisão."
 	/>
 
 	<div class="mt-9">
@@ -214,33 +264,7 @@
 						</select>
 					</div>
 
-					<fieldset>
-						<legend class="form-label">Participantes</legend>
-						<div class="grid gap-4 sm:grid-cols-2">
-							<label>
-								<span class="mb-1.5 block text-sm text-slate-600">Mínimo</span>
-								<input
-									type="number"
-									min="1"
-									bind:value={minPlayers}
-									required
-									class="form-control"
-								/>
-							</label>
-							<label>
-								<span class="mb-1.5 block text-sm text-slate-600">Máximo</span>
-								<input
-									type="number"
-									min="1"
-									bind:value={maxPlayers}
-									required
-									class="form-control"
-								/>
-							</label>
-						</div>
-					</fieldset>
-
-					<div class="grid gap-5 border-t-2 border-slate-200 pt-6 sm:grid-cols-2">
+					<div class="grid gap-5 border-t border-white/10 pt-6 sm:grid-cols-2">
 						<FilePicker
 							id="sourceCode"
 							label={`Código-fonte ${selectedRuntime?.source_extension ?? ''}`}
@@ -257,12 +281,36 @@
 						/>
 					</div>
 
+					{#if sourceCodeFiles?.length}
+						<div class="rounded-lg border border-white/10 bg-slate-50/80 p-4" aria-live="polite">
+							<p class="text-xs font-bold tracking-wide text-slate-400 uppercase">Participantes</p>
+							{#if isInspecting}
+								<p class="mt-2 font-bold text-slate-700">Analisando o código...</p>
+							{:else if inspectionError}
+								<p class="mt-2 text-sm font-bold text-red-600">{inspectionError}</p>
+							{:else if playerInspection}
+								<p class="mt-2 font-bold text-slate-900">
+									{playerInspection.min_players === playerInspection.max_players
+										? `O jogo aceita ${playerInspection.min_players} jogador${playerInspection.min_players === 1 ? '' : 'es'}.`
+										: `O jogo aceita de ${playerInspection.min_players} a ${playerInspection.max_players} jogadores.`}
+								</p>
+								<p class="mt-1 text-sm text-slate-500">
+									Confira o valor detectado antes de enviar para revisão.
+								</p>
+							{/if}
+						</div>
+					{/if}
+
 					<button
 						type="submit"
-						disabled={isSubmitting || isLoadingRuntimes || !selectedRuntime}
+						disabled={isSubmitting ||
+							isInspecting ||
+							!playerInspection ||
+							isLoadingRuntimes ||
+							!selectedRuntime}
 						class="primary-button w-full sm:w-auto"
 					>
-						{isSubmitting ? 'Enviando para revisão...' : 'Enviar para revisão'}
+						{isSubmitting ? 'Criando rascunho...' : 'Salvar para testar'}
 					</button>
 				</form>
 

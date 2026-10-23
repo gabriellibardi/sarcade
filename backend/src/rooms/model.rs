@@ -1,36 +1,37 @@
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{OwnedSemaphorePermit, broadcast};
 
-use backend::game_runtime::RuntimeHandle;
+use backend::game_runtime::{RuntimeSpec, SinteractHandle};
 
-#[derive(Clone)]
 pub struct Room {
     pub code: String,
-    pub game_id: i64,
+    pub spec: RuntimeSpec,
     pub status: RoomStatus,
 
-    pub min_players: i64,
-    pub max_players: i64,
-
     pub host_token: String,
+    pub invite_token: Option<String>,
     pub host_player_id: Option<u64>,
 
     pub next_player_id: u64,
     pub players: Vec<Player>,
 
     pub tx: broadcast::Sender<ServerMessage>,
-    pub runtime: RuntimeHandle,
+    pub runtime: SinteractHandle,
+    pub _runtime_permit: Option<OwnedSemaphorePermit>,
 
     pub created_at: Instant,
+    pub all_disconnected_at: Option<Instant>,
 }
 
 #[derive(Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomStatus {
+    Preparing,
     Waiting,
     Running,
+    Failed,
 }
 
 #[derive(Clone, Serialize)]
@@ -38,17 +39,25 @@ pub struct Player {
     pub id: u64,
     pub nickname: String,
     pub is_host: bool,
+    pub connected: bool,
+    #[serde(skip)]
+    pub reconnect_token: String,
+    #[serde(skip)]
+    pub connection_generation: u64,
 }
 
 #[derive(Clone, Serialize)]
 pub struct RoomSnapshot {
     pub code: String,
     pub game_id: i64,
+    pub is_preview: bool,
     pub status: RoomStatus,
     pub min_players: i64,
     pub max_players: i64,
     pub players: Vec<Player>,
     pub can_start: bool,
+    pub can_join: bool,
+    pub join_error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -62,70 +71,35 @@ pub enum ClientMessage {
 
     #[serde(rename = "promote")]
     Promote { player_id: u64 },
-
-    #[serde(rename = "keydown")]
-    KeyDown { key: String },
-
-    #[serde(rename = "keyup")]
-    KeyUp { key: String },
-
-    #[serde(rename = "paddown")]
-    PadDown { input: String },
-
-    #[serde(rename = "padup")]
-    PadUp { input: String },
-
-    #[serde(rename = "ping")]
-    Ping,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(tag = "type")]
-pub enum InputEvent {
-    #[serde(rename = "keydown")]
-    KeyDown { key: String },
-
-    #[serde(rename = "keyup")]
-    KeyUp { key: String },
-
-    #[serde(rename = "paddown")]
-    PadDown { input: String },
-
-    #[serde(rename = "padup")]
-    PadUp { input: String },
-}
-
-impl ClientMessage {
-    pub fn into_input_event(self) -> Option<InputEvent> {
-        match self {
-            ClientMessage::KeyDown { key } => Some(InputEvent::KeyDown { key }),
-            ClientMessage::KeyUp { key } => Some(InputEvent::KeyUp { key }),
-            ClientMessage::PadDown { input } => Some(InputEvent::PadDown { input }),
-            ClientMessage::PadUp { input } => Some(InputEvent::PadUp { input }),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum ServerMessage {
+    #[serde(skip)]
+    SinteractChanged,
+
     #[serde(rename = "joined")]
     Joined {
         player_id: u64,
         is_host: bool,
+        player_token: String,
         room: RoomSnapshot,
+    },
+
+    #[serde(rename = "connection_replaced")]
+    ConnectionReplaced {
+        #[serde(skip)]
+        player_id: u64,
+        #[serde(skip)]
+        connection_generation: u64,
     },
 
     #[serde(rename = "room_state")]
-    RoomState {
-        room: RoomSnapshot,
-    },
+    RoomState { room: RoomSnapshot },
 
     #[serde(rename = "room_started")]
-    RoomStarted {
-        room: RoomSnapshot,
-    },
+    RoomStarted { room: RoomSnapshot },
 
     #[serde(rename = "host_changed")]
     HostChanged {
@@ -134,47 +108,39 @@ pub enum ServerMessage {
     },
 
     #[serde(rename = "player_kicked")]
-    PlayerKicked {
-        player_id: u64,
-        room: RoomSnapshot,
-    },
+    PlayerKicked { player_id: u64, room: RoomSnapshot },
 
     #[serde(rename = "player_left")]
-    PlayerLeft {
-        player_id: u64,
-        room: RoomSnapshot,
-    },
-
-    #[serde(rename = "input")]
-    Input {
-        player_id: u64,
-        event: InputEvent,
-    },
-
-    #[serde(rename = "frame")]
-    Frame {
-        #[serde(skip)]
-        player_id: u64,
-        svg: String,
-    },
+    PlayerLeft { player_id: u64, room: RoomSnapshot },
 
     #[serde(rename = "error")]
-    Error {
-        message: String,
-    },
-
-    #[serde(rename = "pong")]
-    Pong,
+    Error { message: String },
 }
 
 impl ServerMessage {
-    pub fn is_for_player(&self, player_id: u64) -> bool {
-        !matches!(
+    pub fn is_for_connection(&self, player_id: u64, connection_generation: u64) -> bool {
+        match self {
+            Self::ConnectionReplaced {
+                player_id: target_id,
+                connection_generation: target_generation,
+            } => *target_id == player_id && *target_generation == connection_generation,
+            _ => true,
+        }
+    }
+
+    pub fn closes_connection(&self, player_id: u64, connection_generation: u64) -> bool {
+        matches!(
             self,
-            Self::Frame {
+            Self::PlayerKicked {
                 player_id: target_id,
                 ..
-            } if *target_id != player_id
+            } if *target_id == player_id
+        ) || matches!(
+            self,
+            Self::ConnectionReplaced {
+                player_id: target_id,
+                connection_generation: target_generation,
+            } if *target_id == player_id && *target_generation == connection_generation
         )
     }
 }
@@ -192,8 +158,11 @@ pub enum RoomError {
     PlayerNotFound,
     CannotKickSelf,
     AlreadyRunning,
-    NotRunning,
     RuntimeUnavailable,
+    RuntimePreparing,
+    InvalidPlayerToken,
+    InvalidInviteToken,
+    ConnectionReplaced,
 }
 
 impl RoomError {
@@ -210,38 +179,60 @@ impl RoomError {
             RoomError::PlayerNotFound => "Jogador não encontrado",
             RoomError::CannotKickSelf => "O host não pode expulsar a si mesmo",
             RoomError::AlreadyRunning => "A partida já foi iniciada",
-            RoomError::NotRunning => "A partida ainda não foi iniciada",
-            RoomError::RuntimeUnavailable => "Runtime da partida indisponível",
+            RoomError::RuntimeUnavailable => "Ambiente da partida indisponível",
+            RoomError::RuntimePreparing => "A partida ainda está sendo preparada",
+            RoomError::InvalidPlayerToken => "Token de reconexão inválido",
+            RoomError::InvalidInviteToken => "Este convite de teste é inválido",
+            RoomError::ConnectionReplaced => "Esta conexão foi substituída por uma reconexão",
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ServerMessage;
+    use super::{ClientMessage, Player, ServerMessage};
 
     #[test]
-    fn targeted_frame_is_visible_only_to_its_player() {
-        let frame = ServerMessage::Frame {
-            player_id: 7,
-            svg: "<svg/>".into(),
-        };
-
-        assert!(frame.is_for_player(7));
-        assert!(!frame.is_for_player(8));
+    fn textual_game_inputs_are_not_part_of_the_room_protocol() {
+        for payload in [
+            r#"{"type":"keydown","key":"a"}"#,
+            r#"{"type":"keyup","key":"a"}"#,
+            r#"{"type":"paddown","input":"Left"}"#,
+            r#"{"type":"padup","input":"Left"}"#,
+            r#"{"type":"ping"}"#,
+        ] {
+            assert!(serde_json::from_str::<ClientMessage>(payload).is_err());
+        }
     }
 
     #[test]
-    fn websocket_frame_omits_internal_routing_metadata() {
-        let frame = ServerMessage::Frame {
+    fn replacement_targets_only_the_previous_connection_generation() {
+        let replaced = ServerMessage::ConnectionReplaced {
             player_id: 7,
-            svg: "<svg/>".into(),
+            connection_generation: 2,
         };
-        let json = serde_json::to_value(frame).unwrap();
 
-        assert_eq!(json["type"], "frame");
-        assert_eq!(json["svg"], "<svg/>");
-        assert!(json.get("player_id").is_none());
+        assert!(replaced.is_for_connection(7, 2));
+        assert!(replaced.closes_connection(7, 2));
+        assert!(!replaced.is_for_connection(7, 3));
+        assert!(!replaced.is_for_connection(8, 2));
+    }
+
+    #[test]
+    fn public_player_never_exposes_reconnection_credentials() {
+        let player = Player {
+            id: 7,
+            nickname: "Ana".into(),
+            is_host: true,
+            connected: true,
+            reconnect_token: "segredo".into(),
+            connection_generation: 3,
+        };
+        let json = serde_json::to_value(player).unwrap();
+
+        assert_eq!(json["connected"], true);
+        assert!(json.get("reconnect_token").is_none());
+        assert!(json.get("connection_generation").is_none());
     }
 
     #[test]
@@ -250,7 +241,7 @@ mod tests {
             message: "falha".into(),
         };
 
-        assert!(error.is_for_player(1));
-        assert!(error.is_for_player(2));
+        assert!(error.is_for_connection(1, 1));
+        assert!(error.is_for_connection(2, 1));
     }
 }

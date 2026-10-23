@@ -17,11 +17,11 @@
 		src={avatar}
 		alt=""
 		referrerpolicy="no-referrer"
-		class={`shrink-0 border-2 border-slate-300 object-cover shadow-[3px_3px_0_#3d1a62] ${sizeClasses[size]}`}
+		class={`shrink-0 rounded-full border border-white/15 object-cover shadow-lg ${sizeClasses[size]}`}
 	/>
 {:else}
 	<span
-		class={`flex shrink-0 items-center justify-center border-2 border-indigo-300 bg-indigo-100 font-black text-indigo-300 shadow-[3px_3px_0_#3d1a62] ${sizeClasses[size]}`}
+		class={`flex shrink-0 items-center justify-center rounded-full border border-indigo-300/50 bg-indigo-100 font-bold text-indigo-300 shadow-lg ${sizeClasses[size]}`}
 		aria-hidden="true"
 	>
 		{name.slice(0, 1).toUpperCase()}

@@ -2,8 +2,9 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
-	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
+	import { onMount, tick } from 'svelte';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
+	import { apiRequest, errorMessage } from '$lib/api';
 	import GameControls from '$lib/components/room/GameControls.svelte';
 	import GameViewport from '$lib/components/room/GameViewport.svelte';
 	import RoomJoinForm from '$lib/components/room/RoomJoinForm.svelte';
@@ -11,36 +12,58 @@
 	import RoomToolbar from '$lib/components/room/RoomToolbar.svelte';
 	import Alert from '$lib/components/ui/Alert.svelte';
 	import type { RoomServerMessage, RoomSnapshot } from '$lib/types/room';
+	import {
+		encodeInput,
+		PadButton,
+		type PadButton as SinteractPadButton
+	} from '$sinteract/protocol';
+	import { View as SinteractView, type Link as SinteractLink } from '$sinteract/view';
 
 	let room: RoomSnapshot | null = null;
+	let roomPreview: RoomSnapshot | null = null;
 	let socket: WebSocket | null = null;
 
 	let nickname = '';
 	let hostToken = '';
+	let playerToken = '';
+	let inviteToken = '';
 
 	let myPlayerId: number | null = null;
 	let amHost = false;
 
 	let message = '';
 	let error = '';
-	let frameSvg = '';
+	let gameCanvas: HTMLCanvasElement | null = null;
+	let sinteractView: SinteractView | null = null;
+	let sinteractLink: SinteractLink | null = null;
+	let activatingSinteract = false;
+	let isCheckingRoom = true;
+	let entryBlocked = false;
 
-	let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 	const WS_CONNECTING = 0;
 	const WS_OPEN = 1;
 	const WS_CLOSED = 3;
 	let connectionState = WS_CLOSED;
-	const pressedKeys = new SvelteMap<string, string>();
-	const keysWithBrowserAction = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);
 
 	const code = page.params.code ?? '';
+	const participationStorageKey = `sarcade:room:${code}:participation`;
 
 	$: isConnected = connectionState === WS_OPEN;
 	$: isConnecting = connectionState === WS_CONNECTING;
-	$: canShowJoinForm = connectionState === WS_CLOSED;
+	$: canShowJoinForm = connectionState === WS_CLOSED && !isCheckingRoom && !entryBlocked;
 	$: canStart = Boolean(room?.can_start && amHost && room.status === 'waiting');
-	$: keyboardEnabled = Boolean(isConnected && room?.status === 'running');
-	$: frameUrl = frameSvg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(frameSvg)}` : '';
+	$: if (room?.status === 'running' && gameCanvas && isConnected) {
+		void activateSinteract();
+	}
+
+	const padButtons: Record<string, SinteractPadButton> = {
+		Up: PadButton.DPAD_UP,
+		Down: PadButton.DPAD_DOWN,
+		Left: PadButton.DPAD_LEFT,
+		Right: PadButton.DPAD_RIGHT,
+		ActionA: PadButton.A,
+		ActionB: PadButton.B
+	};
 
 	function getWsUrl() {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -50,6 +73,12 @@
 
 		if (hostToken) {
 			params.set('host_token', hostToken);
+		}
+		if (playerToken) {
+			params.set('player_token', playerToken);
+		}
+		if (inviteToken) {
+			params.set('invite_token', inviteToken);
 		}
 
 		return `${protocol}//${window.location.host}/api/rooms/${code}/ws?${params.toString()}`;
@@ -65,9 +94,15 @@
 		}
 
 		nickname = nickname.trim();
+		if (!playerToken && roomPreview && !roomPreview.can_join) {
+			entryBlocked = true;
+			error = roomPreview.join_error ?? 'Não é possível entrar nesta sala.';
+			return;
+		}
 		closeSocket();
 
-		const nextSocket = new WebSocket(getWsUrl());
+		const nextSocket = new WebSocket(getWsUrl(), 'sarcade.room.v1');
+		nextSocket.binaryType = 'arraybuffer';
 		socket = nextSocket;
 		connectionState = WS_CONNECTING;
 
@@ -76,11 +111,20 @@
 
 			connectionState = WS_OPEN;
 			message = 'Conectado à sala.';
-			startKeepAlive();
 		};
 
 		nextSocket.onmessage = (event) => {
 			if (socket !== nextSocket) return;
+
+			if (typeof event.data !== 'string') {
+				if (event.data instanceof ArrayBuffer && sinteractLink?.onmessage) {
+					sinteractLink.onmessage(new Uint8Array(event.data));
+					return;
+				}
+
+				error = 'O servidor enviou dados binários antes de a view estar pronta.';
+				return;
+			}
 
 			let data: RoomServerMessage;
 
@@ -102,7 +146,6 @@
 			connectionState = WS_CLOSED;
 			resetParticipationState();
 			message = 'Conexão encerrada.';
-			stopKeepAlive();
 		};
 
 		nextSocket.onerror = () => {
@@ -117,18 +160,28 @@
 			case 'joined':
 				myPlayerId = data.player_id;
 				amHost = data.is_host;
+				playerToken = data.player_token;
 				room = data.room;
+				saveParticipation();
+				void activateSinteract();
+				break;
+
+			case 'connection_replaced':
+				clearParticipation();
+				closeSocket();
+				error = 'Esta conexão foi substituída por uma reconexão.';
 				break;
 
 			case 'room_state':
 				room = data.room;
 				refreshHostStatus();
+				if (data.room.status !== 'running') closeSinteract();
 				break;
 
 			case 'room_started':
 				room = data.room;
 				refreshHostStatus();
-				message = 'Partida iniciada.';
+				void activateSinteract();
 				break;
 
 			case 'host_changed':
@@ -144,6 +197,7 @@
 				room = data.room;
 
 				if (data.player_id === myPlayerId) {
+					clearParticipation();
 					closeSocket();
 					error = 'Você foi removido da sala pelo host.';
 					return;
@@ -157,20 +211,11 @@
 				refreshHostStatus();
 				break;
 
-			case 'input':
-				// O evento completo já foi incluído no log por socket.onmessage.
-				break;
-
-			case 'frame':
-				frameSvg = data.svg;
-				break;
-
 			case 'error':
+				if (myPlayerId === null && playerToken) {
+					clearParticipation();
+				}
 				error = data.message;
-				break;
-
-			case 'pong':
-				// Keep-alive respondido pelo servidor.
 				break;
 		}
 	}
@@ -212,117 +257,83 @@
 		});
 	}
 
-	function sendKey(key: string) {
-		sendMessage({
-			type: 'keydown',
-			key
-		});
-	}
-
-	function sendKeyUp(key: string) {
-		sendMessage({
-			type: 'keyup',
-			key
-		});
-	}
-
-	function sendPadDown(input: string) {
-		sendMessage({
-			type: 'paddown',
-			input
-		});
-	}
-
-	function sendPadUp(input: string) {
-		sendMessage({
-			type: 'padup',
-			input
-		});
-	}
-
-	function isEditableTarget(target: EventTarget | null) {
-		if (!(target instanceof HTMLElement)) {
-			return false;
+	async function activateSinteract() {
+		if (
+			activatingSinteract ||
+			sinteractView ||
+			room?.status !== 'running' ||
+			!socket ||
+			socket.readyState !== WS_OPEN
+		) {
+			return;
 		}
 
-		return (
-			target.isContentEditable || target.closest('input, textarea, select, button, a') !== null
+		activatingSinteract = true;
+		await tick();
+
+		try {
+			const activeSocket = socket;
+			if (
+				!gameCanvas ||
+				!activeSocket ||
+				activeSocket.readyState !== WS_OPEN ||
+				room?.status !== 'running'
+			) {
+				return;
+			}
+
+			let open = true;
+			const link: SinteractLink = {
+				send(payload) {
+					if (open && socket === activeSocket && activeSocket.readyState === WS_OPEN) {
+						activeSocket.send(payload);
+					}
+				},
+				close() {
+					open = false;
+				},
+				onopen: null,
+				onmessage: null,
+				onclose: null
+			};
+			const view = new SinteractView(gameCanvas, {
+				keys: gameCanvas,
+				onError(cause) {
+					console.error(cause);
+					error = 'A view não conseguiu processar uma mensagem do jogo.';
+				}
+			});
+
+			sinteractLink = link;
+			sinteractView = view;
+			view.attach(link);
+			link.onopen?.();
+			gameCanvas.focus();
+		} finally {
+			activatingSinteract = false;
+		}
+	}
+
+	function closeSinteract() {
+		const view = sinteractView;
+		sinteractView = null;
+		sinteractLink = null;
+		view?.close();
+	}
+
+	function sendPad(kind: 'down' | 'up', input: string) {
+		const button = padButtons[input];
+		if (button === undefined || !sinteractLink) return;
+
+		sinteractLink.send(
+			encodeInput({
+				kind: 'pad',
+				action: { kind, button }
+			})
 		);
 	}
 
-	function keyIdentifier(event: KeyboardEvent) {
-		return event.code || event.key;
-	}
-
-	function preventBrowserAction(event: KeyboardEvent) {
-		if (keysWithBrowserAction.has(event.key)) {
-			event.preventDefault();
-		}
-	}
-
-	function handleKeyDown(event: KeyboardEvent) {
-		if (!keyboardEnabled || isEditableTarget(event.target)) {
-			return;
-		}
-
-		const identifier = keyIdentifier(event);
-
-		preventBrowserAction(event);
-
-		// Um keydown é enviado por pressionamento. Enquanto a tecla estiver
-		// segurada, os eventos automáticos de repetição do navegador são ignorados.
-		if (event.repeat || pressedKeys.has(identifier)) {
-			return;
-		}
-
-		pressedKeys.set(identifier, event.key);
-		sendKey(event.key);
-	}
-
-	function handleKeyUp(event: KeyboardEvent) {
-		const identifier = keyIdentifier(event);
-		const pressedKey = pressedKeys.get(identifier);
-
-		if (pressedKey === undefined) {
-			return;
-		}
-
-		preventBrowserAction(event);
-		pressedKeys.delete(identifier);
-		sendKeyUp(pressedKey);
-	}
-
-	function releasePressedKeys() {
-		if (socket?.readyState === WS_OPEN) {
-			for (const key of pressedKeys.values()) {
-				socket.send(JSON.stringify({ type: 'keyup', key }));
-			}
-		}
-
-		pressedKeys.clear();
-	}
-
-	function startKeepAlive() {
-		stopKeepAlive();
-
-		keepAliveInterval = setInterval(() => {
-			if (socket?.readyState === WS_OPEN) {
-				socket.send(JSON.stringify({ type: 'ping' }));
-			}
-		}, 25_000);
-	}
-
-	function stopKeepAlive() {
-		if (keepAliveInterval) {
-			clearInterval(keepAliveInterval);
-			keepAliveInterval = null;
-		}
-	}
-
 	function closeSocket() {
-		releasePressedKeys();
-		stopKeepAlive();
-
 		const currentSocket = socket;
 		socket = null;
 		connectionState = WS_CLOSED;
@@ -332,23 +343,61 @@
 	}
 
 	function resetParticipationState() {
+		closeSinteract();
 		myPlayerId = null;
 		amHost = false;
 		room = null;
-		frameSvg = '';
-		pressedKeys.clear();
+	}
+
+	function saveParticipation() {
+		if (!playerToken) return;
+
+		sessionStorage.setItem(participationStorageKey, JSON.stringify({ playerToken, nickname }));
+	}
+
+	function restoreParticipation() {
+		const saved = sessionStorage.getItem(participationStorageKey);
+		if (!saved) return;
+
+		try {
+			const parsed: unknown = JSON.parse(saved);
+			if (
+				typeof parsed === 'object' &&
+				parsed !== null &&
+				'playerToken' in parsed &&
+				typeof parsed.playerToken === 'string' &&
+				'nickname' in parsed &&
+				typeof parsed.nickname === 'string'
+			) {
+				playerToken = parsed.playerToken;
+				if (!nickname) nickname = parsed.nickname;
+				return;
+			}
+		} catch {
+			// Um valor local inválido não deve impedir uma nova entrada na sala.
+		}
+
+		sessionStorage.removeItem(participationStorageKey);
+	}
+
+	function clearParticipation() {
+		playerToken = '';
+		sessionStorage.removeItem(participationStorageKey);
 	}
 
 	async function leaveRoom() {
 		const gameId = room?.game_id;
+		const wasPreview = room?.is_preview;
 
 		closeSocket();
+		clearParticipation();
 		nickname = '';
 		hostToken = '';
+		inviteToken = '';
 		message = '';
 		error = '';
 
-		if (gameId) {
+		if (gameId && !wasPreview) {
 			await goto(resolve('/games/[id]', { id: String(gameId) }), {
 				replaceState: true
 			});
@@ -358,10 +407,11 @@
 	}
 
 	function copyRoomUrl() {
-		const url = new URL(resolve('/rooms/[code]', { code }), window.location.origin).toString();
+		const url = new URL(resolve('/rooms/[code]', { code }), window.location.origin);
+		if (inviteToken) url.searchParams.set('invite_token', inviteToken);
 
 		navigator.clipboard
-			.writeText(url)
+			.writeText(url.toString())
 			.then(() => {
 				message = 'Link da sala copiado.';
 			})
@@ -370,24 +420,46 @@
 			});
 	}
 
-	onMount(() => {
-		window.addEventListener('keydown', handleKeyDown);
-		window.addEventListener('keyup', handleKeyUp);
-		window.addEventListener('blur', releasePressedKeys);
+	async function inspectRoom() {
+		isCheckingRoom = true;
+		entryBlocked = false;
+		error = '';
+		const params = new SvelteURLSearchParams();
+		if (inviteToken) params.set('invite_token', inviteToken);
+		if (playerToken) params.set('player_token', playerToken);
+		const query = params.size ? `?${params.toString()}` : '';
 
+		try {
+			roomPreview = await apiRequest<RoomSnapshot>(`/api/rooms/${code}${query}`);
+			if (!playerToken && !roomPreview.can_join) {
+				entryBlocked = true;
+				error = roomPreview.join_error ?? 'Não é possível entrar nesta sala.';
+			}
+		} catch (loadError) {
+			entryBlocked = true;
+			error = errorMessage(loadError, 'Não foi possível consultar esta sala.');
+			console.error(loadError);
+		} finally {
+			isCheckingRoom = false;
+		}
+	}
+
+	async function initializeRoom() {
 		const params = new SvelteURLSearchParams(window.location.search);
 
 		nickname = params.get('nickname') ?? '';
 		hostToken = params.get('host_token') ?? '';
+		inviteToken = params.get('invite_token') ?? '';
+		restoreParticipation();
+		await inspectRoom();
 
-		if (nickname) {
-			connect();
-		}
+		if (nickname && !entryBlocked) connect();
+	}
+
+	onMount(() => {
+		void initializeRoom();
 
 		return () => {
-			window.removeEventListener('keydown', handleKeyDown);
-			window.removeEventListener('keyup', handleKeyUp);
-			window.removeEventListener('blur', releasePressedKeys);
 			closeSocket();
 		};
 	});
@@ -395,19 +467,25 @@
 
 <svelte:head>
 	<title>Sala {code} — Sarcade</title>
-	<meta name="description" content="Lobby e execução de uma partida multiplayer no Sarcade." />
+	<meta name="description" content="Lobby e execução de uma partida no Sarcade." />
 </svelte:head>
 
-<main class="page-shell max-w-5xl">
+<main class="page-shell max-w-7xl">
 	<RoomToolbar {code} {isConnected} onCopy={copyRoomUrl} onLeave={() => void leaveRoom()} />
 
 	<div class="mt-7 space-y-5">
+		{#if isCheckingRoom}
+			<div
+				class="surface-card h-36 animate-pulse"
+				aria-label="Consultando disponibilidade da sala"
+			></div>
+		{/if}
 		{#if error}
 			<Alert tone="error" message={error} />
 		{/if}
 
 		{#if message}
-			<Alert tone="info" {message} />
+			<Alert tone="info" {message} dismissAfter={5000} onDismiss={() => (message = '')} />
 		{/if}
 
 		{#if canShowJoinForm}
@@ -415,17 +493,19 @@
 		{/if}
 
 		{#if room?.status === 'running'}
-			<div
-				class="mx-auto flex min-h-[calc(100vh-13rem)] w-full max-w-4xl flex-col justify-center gap-5"
-			>
-				<div class="relative">
-					<GameViewport {frameUrl} />
-					<GameControls enabled={keyboardEnabled} onPadDown={sendPadDown} onPadUp={sendPadUp} />
+			<div class="mx-auto flex min-h-[calc(100vh-11rem)] w-full max-w-6xl flex-col justify-center">
+				<div>
+					<GameViewport bind:canvas={gameCanvas} />
+					<GameControls
+						enabled={Boolean(sinteractLink)}
+						onPadDown={(input) => sendPad('down', input)}
+						onPadUp={(input) => sendPad('up', input)}
+					/>
 				</div>
 			</div>
 		{/if}
 
-		{#if room}
+		{#if room && room.status !== 'running'}
 			<RoomLobby
 				{room}
 				{myPlayerId}

@@ -15,11 +15,13 @@
 	<link rel="icon" href={logotipo} />
 	<meta
 		name="description"
-		content="Sarcade: jogos educacionais criados com linguagens para estudantes."
+		content="Sarcade: crie, compartilhe e jogue jogos educacionais no navegador."
 	/>
 </svelte:head>
 
-<div class="flex min-h-screen flex-col">
+<div class="site-background" aria-hidden="true"></div>
+
+<div class="relative z-10 flex min-h-screen flex-col">
 	<SiteHeader />
 	<div class="flex-1">{@render children()}</div>
 	<SiteFooter />

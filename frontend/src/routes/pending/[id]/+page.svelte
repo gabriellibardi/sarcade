@@ -83,6 +83,53 @@
 		}
 	}
 
+	async function editRevision() {
+		if (!game || isReviewing) return;
+		isReviewing = true;
+		actionError = '';
+		try {
+			const editable = await apiRequest<{ revision_id: number }>(
+				`/api/revisions/${game.revision_id}/edit`,
+				{ method: 'POST' }
+			);
+			await goto(resolve('/my-games/revisions/[id]/edit', { id: String(editable.revision_id) }));
+		} catch (editError) {
+			actionError = errorMessage(editError, 'Não foi possível preparar uma nova versão.');
+			console.error(editError);
+		} finally {
+			isReviewing = false;
+		}
+	}
+
+	async function testRevision() {
+		if (!game || isReviewing) return;
+		isReviewing = true;
+		actionError = '';
+		try {
+			const nickname = get(authState).user?.name.slice(0, 30) || 'Revisor';
+			const result = await apiRequest<{
+				code: string;
+				host_token: string;
+				invite_token: string;
+			}>(`/api/revisions/${game.revision_id}/rooms`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ nickname })
+			});
+			await goto(
+				resolve(
+					`/rooms/[code]?nickname=${encodeURIComponent(nickname)}&host_token=${encodeURIComponent(result.host_token)}&invite_token=${encodeURIComponent(result.invite_token)}`,
+					{ code: result.code }
+				)
+			);
+		} catch (testError) {
+			actionError = errorMessage(testError, 'Não foi possível criar a sala de teste.');
+			console.error(testError);
+		} finally {
+			isReviewing = false;
+		}
+	}
+
 	async function initializePage() {
 		await loadAuth();
 
@@ -139,7 +186,7 @@
 				<section class="surface-card overflow-hidden">
 					{#if game.has_thumbnail}
 						<img
-							src={`/api/games/${game.id}/thumbnail`}
+							src={`/api/revisions/${game.revision_id}/thumbnail`}
 							alt={`Capa de ${game.title}`}
 							class="max-h-80 w-full object-cover"
 						/>
@@ -152,7 +199,7 @@
 
 				<section class="surface-card overflow-hidden">
 					<div
-						class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-6 py-4"
+						class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-4"
 					>
 						<h2 class="text-xl font-black text-slate-950">Código-fonte</h2>
 						<code class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600"
@@ -171,11 +218,11 @@
 					<h2 class="font-black text-slate-950">Metadados</h2>
 					<dl class="mt-4 space-y-3 text-sm">
 						<div>
-							<dt class="text-slate-500">Runtime</dt>
+							<dt class="text-slate-500">Linguagem e versão</dt>
 							<dd class="font-bold text-slate-800">{game.runtime_name} · {game.runtime_version}</dd>
 						</div>
 						<div>
-							<dt class="text-slate-500">Build</dt>
+							<dt class="text-slate-500">Identificador da versão</dt>
 							<dd class="font-mono text-xs break-all text-slate-700">{game.runtime_build_id}</dd>
 						</div>
 						<div>
@@ -203,6 +250,14 @@
 
 				<section class="surface-card p-5">
 					<h2 class="font-black text-slate-950">Decisão</h2>
+					<button
+						type="button"
+						onclick={() => void testRevision()}
+						disabled={isReviewing}
+						class="secondary-button mt-4 w-full"
+					>
+						Testar jogo
+					</button>
 					{#if game.status !== 'pending'}
 						<p class="mt-3 text-sm leading-6 text-slate-600">Esta revisão já foi analisada.</p>
 						{#if game.review_message}
@@ -210,6 +265,14 @@
 								<Alert tone="info" title="Justificativa" message={game.review_message} />
 							</div>
 						{/if}
+						<button
+							type="button"
+							onclick={() => void editRevision()}
+							disabled={isReviewing}
+							class="secondary-button mt-4 w-full"
+						>
+							Criar versão editável
+						</button>
 					{:else}
 						<label for="reviewMessage" class="form-label mt-4">Justificativa da rejeição</label>
 						<textarea
@@ -232,7 +295,7 @@
 								type="button"
 								onclick={() => void rejectRevision()}
 								disabled={isReviewing}
-								class="secondary-button border-red-500 bg-[#34191c] text-red-200 shadow-[4px_4px_0_#511243] hover:border-red-400 hover:bg-[#432025]"
+								class="secondary-button border-red-500 bg-[#34191c]/80 text-red-200 shadow-none hover:border-red-400 hover:bg-[#432025]"
 							>
 								Rejeitar
 							</button>
@@ -240,7 +303,12 @@
 					{/if}
 				</section>
 
-				{#if actionMessage}<Alert tone="success" message={actionMessage} />{/if}
+				{#if actionMessage}<Alert
+						tone="success"
+						message={actionMessage}
+						dismissAfter={5000}
+						onDismiss={() => (actionMessage = '')}
+					/>{/if}
 				{#if actionError}<Alert tone="error" message={actionError} />{/if}
 			</aside>
 		</div>

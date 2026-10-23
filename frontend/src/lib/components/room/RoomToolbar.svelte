@@ -9,7 +9,7 @@
 
 <div class="flex flex-wrap items-center justify-between gap-3">
 	<div>
-		<p class="eyebrow">Sala multiplayer</p>
+		<p class="eyebrow">Sala de jogo</p>
 		<h1 class="display-title mt-2 text-3xl text-slate-950 sm:text-4xl">Sala {code}</h1>
 	</div>
 	<div class="flex flex-wrap gap-2">

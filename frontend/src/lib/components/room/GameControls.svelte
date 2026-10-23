@@ -107,51 +107,28 @@
 {/snippet}
 
 <section
-	class="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex items-end justify-between sm:hidden"
+	class="mt-4 flex items-center justify-between gap-6 px-2 sm:mx-auto sm:max-w-3xl sm:px-6"
 	aria-label="Controles do jogo"
 >
-	<div class="pointer-events-auto grid h-30 w-30 shrink-0 grid-cols-3 grid-rows-3">
+	<div class="grid h-30 w-30 shrink-0 grid-cols-3 grid-rows-3 sm:h-36 sm:w-36">
 		{#each directionalControls as control (control.input)}
 			<div class={directionPositions[control.input]}>
 				{@render padButton(
 					control,
-					'flex h-10 w-10 touch-none select-none items-center justify-center border-2 border-white/45 bg-black/60 text-lg font-black text-white shadow-[2px_2px_0_rgba(0,0,0,0.65)] backdrop-blur-sm transition active:scale-90 active:border-indigo-300 active:bg-arcade-blue/85 disabled:opacity-30'
+					'flex h-10 w-10 touch-none select-none items-center justify-center border-2 border-slate-400 bg-slate-800 text-lg font-black text-white shadow-[3px_3px_0_#3d1a62] transition active:translate-x-0.5 active:translate-y-0.5 active:border-indigo-300 active:bg-arcade-blue active:shadow-none disabled:opacity-30 sm:h-12 sm:w-12'
 				)}
 			</div>
 		{/each}
 	</div>
 
-	<div class="pointer-events-auto flex shrink-0 items-end gap-2 pb-4">
+	<div class="flex shrink-0 items-end gap-3 pb-4 sm:gap-5">
 		{#each actionControls as control, index (control.input)}
 			<div class={index === 0 ? 'translate-y-1' : '-translate-y-3'}>
 				{@render padButton(
 					control,
-					'flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border-2 border-white/50 bg-arcade-red/75 font-mono text-base font-black text-white shadow-[3px_3px_0_rgba(81,18,67,0.8)] backdrop-blur-sm transition active:scale-90 active:bg-[#c64a4a] active:shadow-none disabled:opacity-30'
+					'flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border-2 border-red-300 bg-arcade-red font-mono text-base font-black text-white shadow-[3px_3px_0_#511243] transition active:translate-x-0.5 active:translate-y-0.5 active:bg-[#c64a4a] active:shadow-none disabled:opacity-30 sm:h-14 sm:w-14'
 				)}
 			</div>
-		{/each}
-	</div>
-</section>
-
-<section class="surface-card mt-5 hidden p-6 sm:block">
-	<div class="flex flex-wrap items-start justify-between gap-3">
-		<div>
-			<p class="text-xs font-bold tracking-widest text-slate-400 uppercase">Entrada</p>
-			<h2 class="display-title mt-2 text-xl text-slate-950">Controles</h2>
-		</div>
-		<span
-			class={`status-chip px-3 py-1 text-xs font-bold ${enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-slate-100 text-slate-600'}`}
-		>
-			{enabled ? 'Ativos' : 'Aguardando partida'}
-		</span>
-	</div>
-
-	<div class="mt-5 grid grid-cols-6 gap-2">
-		{#each controls as control (control.input)}
-			{@render padButton(
-				control,
-				'flex min-h-14 touch-none select-none items-center justify-center border-2 border-slate-300 bg-slate-50 text-lg font-black text-slate-800 shadow-[3px_3px_0_#3d1a62] transition hover:translate-x-0.5 hover:translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-300 hover:shadow-[1px_1px_0_#3d1a62] active:translate-x-1 active:translate-y-1 active:shadow-none disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none'
-			)}
 		{/each}
 	</div>
 </section>

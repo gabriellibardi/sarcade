@@ -1,7 +1,13 @@
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
+use backend::game_runtime::version::{
+    SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SGLEAM_VERSION, SINTERACT_PROTOCOL_VERSION,
+};
+
 pub type Db = Arc<Mutex<Connection>>;
+
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 pub fn init(path: &str) -> Db {
     let conn = Connection::open(path).expect("falha ao abrir o banco de dados");
@@ -15,8 +21,193 @@ pub fn init(path: &str) -> Db {
     Arc::new(Mutex::new(conn))
 }
 
-fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(include_str!("schema.sql"))
+pub(crate) fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(include_str!("schema.sql"))?;
+
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+
+    // Databases created before versioned migrations already have this exact
+    // schema, but no user_version. Marking the baseline lets later changes be
+    // applied transactionally without mistaking an existing database for a
+    // fresh installation.
+    if version == 0 {
+        conn.pragma_update(None, "user_version", 1)?;
+        version = 1;
+    }
+
+    if version == 1 {
+        migrate_revisions_v2(conn)?;
+        version = 2;
+    }
+
+    if version == 2 {
+        migrate_runtime_availability_v3(conn)?;
+        version = 3;
+    }
+
+    if version == 3 {
+        migrate_pinned_sgleam_build_v4(conn)?;
+    }
+
+    Ok(())
+}
+
+fn migrate_pinned_sgleam_build_v4(conn: &Connection) -> rusqlite::Result<()> {
+    let transaction = conn.unchecked_transaction()?;
+
+    transaction.execute(
+        "
+        UPDATE runtime_builds
+        SET status = 'deprecated', is_default = 0
+        WHERE runtime = 'sgleam'
+          AND id <> ?1
+          AND status <> 'unavailable'
+        ",
+        [SGLEAM_BUILD_ID],
+    )?;
+    transaction.execute(
+        "
+        INSERT INTO runtime_builds
+            (id, runtime, display_name, display_version, git_commit,
+             protocol_version, source_extension, status, is_default)
+        VALUES (?1, 'sgleam', 'Sgleam', ?2, ?3, ?4, '.gleam', 'active', 1)
+        ON CONFLICT(id) DO UPDATE SET
+            display_name = excluded.display_name,
+            display_version = excluded.display_version,
+            git_commit = excluded.git_commit,
+            protocol_version = excluded.protocol_version,
+            source_extension = excluded.source_extension,
+            status = excluded.status,
+            is_default = excluded.is_default
+        ",
+        rusqlite::params![
+            SGLEAM_BUILD_ID,
+            SGLEAM_VERSION,
+            SGLEAM_GIT_COMMIT,
+            SINTERACT_PROTOCOL_VERSION
+        ],
+    )?;
+    transaction.execute(
+        "UPDATE game_revisions SET runtime_build_id = ?1 WHERE runtime_build_id = 'sgleam-dev'",
+        [SGLEAM_BUILD_ID],
+    )?;
+    transaction.execute(
+        "UPDATE runtime_builds SET status = 'unavailable', is_default = 0 WHERE id = 'sgleam-dev'",
+        [],
+    )?;
+    transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
+    transaction.commit()
+}
+
+fn migrate_runtime_availability_v3(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        BEGIN IMMEDIATE;
+
+        UPDATE runtime_builds
+        SET status = 'unavailable',
+            is_default = 0
+        WHERE runtime = 'spython';
+
+        PRAGMA user_version = 3;
+        COMMIT;
+        ",
+    )
+}
+
+fn migrate_revisions_v2(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        BEGIN IMMEDIATE;
+
+        ALTER TABLE games ADD COLUMN archived_at TEXT;
+
+        ALTER TABLE game_revisions RENAME TO game_revisions_v1;
+
+        CREATE TABLE game_revisions (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id            INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+            revision_number    INTEGER NOT NULL CHECK (revision_number >= 1),
+            parent_revision_id INTEGER REFERENCES game_revisions(id),
+            created_by_user_id INTEGER REFERENCES users(id),
+            runtime_build_id   TEXT NOT NULL REFERENCES runtime_builds(id),
+            title              TEXT NOT NULL,
+            description        TEXT NOT NULL,
+            thumbnail          BLOB,
+            source_code        TEXT NOT NULL,
+            min_players        INTEGER NOT NULL DEFAULT 1 CHECK (min_players >= 1),
+            max_players        INTEGER NOT NULL DEFAULT 1 CHECK (max_players >= min_players),
+            status             TEXT NOT NULL DEFAULT 'draft'
+                               CHECK (status IN ('draft', 'pending', 'approved', 'rejected', 'withdrawn')),
+            review_message     TEXT,
+            created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            submitted_at       TEXT,
+            reviewed_at        TEXT,
+            UNIQUE (game_id, revision_number)
+        );
+
+        INSERT INTO game_revisions (
+            id,
+            game_id,
+            revision_number,
+            created_by_user_id,
+            runtime_build_id,
+            title,
+            description,
+            thumbnail,
+            source_code,
+            min_players,
+            max_players,
+            status,
+            review_message,
+            created_at,
+            updated_at,
+            submitted_at,
+            reviewed_at
+        )
+        SELECT
+            revisions.id,
+            revisions.game_id,
+            (
+                SELECT COUNT(*)
+                FROM game_revisions_v1 AS earlier
+                WHERE earlier.game_id = revisions.game_id
+                  AND earlier.id <= revisions.id
+            ),
+            games.author_id,
+            revisions.runtime_build_id,
+            games.title,
+            games.description,
+            games.thumbnail,
+            revisions.source_code,
+            revisions.min_players,
+            revisions.max_players,
+            revisions.status,
+            revisions.review_message,
+            revisions.created_at,
+            revisions.created_at,
+            revisions.created_at,
+            revisions.reviewed_at
+        FROM game_revisions_v1 AS revisions
+        JOIN games ON games.id = revisions.game_id;
+
+        DROP TABLE game_revisions_v1;
+
+        CREATE INDEX game_revisions_game_id
+            ON game_revisions(game_id);
+        CREATE INDEX game_revisions_status
+            ON game_revisions(status);
+        CREATE INDEX game_revisions_runtime_build_id
+            ON game_revisions(runtime_build_id);
+
+        PRAGMA user_version = 2;
+        COMMIT;
+        ",
+    )
 }
 
 #[cfg(test)]
@@ -34,12 +225,181 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM runtime_builds", [], |row| row.get(0))
             .unwrap();
 
-        assert_eq!(runtime_count, 2);
+        assert_eq!(runtime_count, 3);
+        let spython: (String, i64) = conn
+            .query_row(
+                "SELECT status, is_default FROM runtime_builds WHERE id = 'spython-dev'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(spython, ("unavailable".into(), 0));
+        let sgleam: (String, String, String, i64, i64) = conn
+            .query_row(
+                "SELECT display_version, git_commit, status, protocol_version, is_default FROM runtime_builds WHERE id = ?1",
+                [SGLEAM_BUILD_ID],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            sgleam,
+            (
+                SGLEAM_VERSION.into(),
+                SGLEAM_GIT_COMMIT.into(),
+                "active".into(),
+                i64::from(SINTERACT_PROTOCOL_VERSION),
+                1,
+            )
+        );
         assert!(table_exists(&conn, "games"));
         assert!(table_exists(&conn, "game_revisions"));
         assert!(table_exists(&conn, "user_identities"));
         assert!(table_exists(&conn, "oauth_states"));
         assert!(table_exists(&conn, "sessions"));
+        assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn adopts_an_existing_unversioned_database_as_the_baseline() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(include_str!("schema.sql")).unwrap();
+
+        assert_eq!(schema_version(&conn), 0);
+        initialize_schema(&conn).unwrap();
+        assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_disables_runtime_builds_without_an_executor() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        initialize_schema(&conn).unwrap();
+        conn.execute(
+            "UPDATE runtime_builds SET status = 'development', is_default = 1 WHERE id = 'spython-dev'",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+
+        initialize_schema(&conn).unwrap();
+
+        let build: (String, i64) = conn
+            .query_row(
+                "SELECT status, is_default FROM runtime_builds WHERE id = 'spython-dev'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(build, ("unavailable".into(), 0));
+        assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_pins_existing_development_revisions_to_the_embedded_build() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        initialize_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO users (email, name) VALUES ('autor@example.com', 'Autora')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (title, description, author_id) VALUES ('Jogo', 'Descrição', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE runtime_builds SET status = 'development' WHERE id = 'sgleam-dev'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO game_revisions (game_id, revision_number, runtime_build_id, title, description, source_code) VALUES (1, 1, 'sgleam-dev', 'Jogo', 'Descrição', 'fonte')",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+
+        initialize_schema(&conn).unwrap();
+
+        let runtime_build_id: String = conn
+            .query_row(
+                "SELECT runtime_build_id FROM game_revisions WHERE game_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(runtime_build_id, SGLEAM_BUILD_ID);
+        assert_eq!(schema_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migrates_existing_revision_metadata_and_history() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(include_str!("schema.sql")).unwrap();
+        conn.execute(
+            "INSERT INTO users (email, name) VALUES ('autor@example.com', 'Autora')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO games (title, description, thumbnail, author_id) VALUES ('Jogo', 'Descrição', X'0102', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "
+            INSERT INTO game_revisions
+                (game_id, runtime_build_id, source_code, status, reviewed_at)
+            VALUES
+                (1, 'sgleam-dev', 'primeira', 'rejected', '2026-01-01'),
+                (1, 'sgleam-dev', 'segunda', 'approved', '2026-01-02')
+            ",
+            [],
+        )
+        .unwrap();
+
+        initialize_schema(&conn).unwrap();
+
+        let revisions = conn
+            .prepare(
+                "SELECT revision_number, title, description, thumbnail, created_by_user_id, status FROM game_revisions ORDER BY id",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(revisions.len(), 2);
+        assert_eq!(revisions[0].0, 1);
+        assert_eq!(revisions[1].0, 2);
+        assert_eq!(revisions[1].1, "Jogo");
+        assert_eq!(revisions[1].2, "Descrição");
+        assert_eq!(revisions[1].3, vec![1, 2]);
+        assert_eq!(revisions[1].4, 1);
+        assert_eq!(revisions[0].5, "rejected");
+        assert_eq!(revisions[1].5, "approved");
     }
 
     fn table_exists(conn: &Connection, table: &str) -> bool {
@@ -49,5 +409,10 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    fn schema_version(conn: &Connection) -> i64 {
+        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap()
     }
 }

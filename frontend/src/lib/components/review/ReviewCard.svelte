@@ -8,7 +8,7 @@
 
 <article class="surface-card overflow-hidden p-5 sm:flex sm:gap-5">
 	<div
-		class="h-32 w-full shrink-0 overflow-hidden border-2 border-arcade-line bg-[linear-gradient(135deg,#25181c_0_50%,#191c2d_50%)] sm:w-44"
+		class="h-32 w-full shrink-0 overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(145deg,#171b31,#28121f)] sm:w-44"
 	>
 		{#if game.has_thumbnail}
 			<img

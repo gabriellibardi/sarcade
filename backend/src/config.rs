@@ -1,4 +1,8 @@
 use std::env;
+use std::path::PathBuf;
+
+const DEFAULT_MAX_RUNTIME_PROCESSES: usize = 32;
+const MAX_CONFIGURED_RUNTIME_PROCESSES: usize = 256;
 
 #[derive(Clone)]
 pub struct GoogleOAuthConfig {
@@ -13,6 +17,8 @@ pub struct Config {
     pub database_url: String,
     pub google_oauth: Option<GoogleOAuthConfig>,
     pub admin_emails: Vec<String>,
+    pub sgleam_executable: Option<PathBuf>,
+    pub max_runtime_processes: usize,
 }
 
 impl Config {
@@ -27,6 +33,8 @@ impl Config {
         let public_base_url =
             non_empty_env("PUBLIC_BASE_URL").map(|value| value.trim_end_matches('/').to_string());
         let admin_emails = comma_separated_env("ADMIN_EMAILS");
+        let sgleam_executable = non_empty_env("SGLEAM_EXECUTABLE").map(PathBuf::from);
+        let max_runtime_processes = runtime_process_limit();
 
         let client_id = non_empty_env("GOOGLE_CLIENT_ID");
         let client_secret = non_empty_env("GOOGLE_CLIENT_SECRET");
@@ -64,8 +72,39 @@ impl Config {
             database_url,
             google_oauth,
             admin_emails,
+            sgleam_executable,
+            max_runtime_processes,
         }
     }
+}
+
+fn runtime_process_limit() -> usize {
+    let configured = non_empty_env("MAX_RUNTIME_PROCESSES");
+    let parsed = parse_bounded_positive_usize(
+        configured.as_deref(),
+        DEFAULT_MAX_RUNTIME_PROCESSES,
+        MAX_CONFIGURED_RUNTIME_PROCESSES,
+    );
+
+    if configured.is_some()
+        && configured.as_deref().and_then(|value| value.parse().ok()) != Some(parsed)
+    {
+        tracing::warn!(
+            value = configured.as_deref().unwrap_or_default(),
+            default = DEFAULT_MAX_RUNTIME_PROCESSES,
+            maximum = MAX_CONFIGURED_RUNTIME_PROCESSES,
+            "MAX_RUNTIME_PROCESSES inválido; usando o valor padrão"
+        );
+    }
+
+    parsed
+}
+
+fn parse_bounded_positive_usize(value: Option<&str>, default: usize, maximum: usize) -> usize {
+    value
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| (1..=maximum).contains(value))
+        .unwrap_or(default)
 }
 
 fn non_empty_env(name: &str) -> Option<String> {
@@ -89,12 +128,22 @@ fn parse_comma_separated(value: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_comma_separated;
+    use super::{parse_bounded_positive_usize, parse_comma_separated};
 
     #[test]
     fn parses_normalized_email_list() {
         let emails = parse_comma_separated(" Admin@Example.com, orientador@example.com ");
 
         assert_eq!(emails, vec!["admin@example.com", "orientador@example.com"]);
+    }
+
+    #[test]
+    fn runtime_process_limit_is_positive_and_bounded() {
+        assert_eq!(parse_bounded_positive_usize(Some("1"), 32, 256), 1);
+        assert_eq!(parse_bounded_positive_usize(Some("256"), 32, 256), 256);
+        assert_eq!(parse_bounded_positive_usize(Some("0"), 32, 256), 32);
+        assert_eq!(parse_bounded_positive_usize(Some("257"), 32, 256), 32);
+        assert_eq!(parse_bounded_positive_usize(Some("invalid"), 32, 256), 32);
+        assert_eq!(parse_bounded_positive_usize(None, 32, 256), 32);
     }
 }

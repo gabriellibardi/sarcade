@@ -35,98 +35,29 @@
 </script>
 
 <svelte:head>
-	<title>Sarcade — jogos feitos por estudantes</title>
+	<title>Sarcade</title>
 </svelte:head>
 
-<main>
-	<section class="relative overflow-hidden border-b-2 border-arcade-line">
-		<div class="pointer-events-none absolute inset-0 opacity-35" aria-hidden="true">
-			<div class="absolute top-8 -left-12 h-24 w-80 rotate-[-8deg] bg-arcade-red"></div>
-			<div
-				class="absolute right-[-5rem] bottom-14 h-28 w-[30rem] rotate-[-8deg] bg-arcade-blue"
-			></div>
-		</div>
-
-		<div class="relative mx-auto max-w-6xl px-5 py-16 sm:px-6 lg:py-24">
-			<div class="mb-12 flex items-center justify-between gap-4 border-b-2 border-arcade-line pb-4">
-				<p class="arcade-kicker">Insert coin · Press start</p>
-				<p class="hidden font-mono text-[10px] tracking-[0.18em] text-slate-500 uppercase sm:block">
-					Jogos criados por estudantes
-				</p>
-			</div>
-
+<main class="min-h-[calc(100svh-5rem)]">
+	<section>
+		<div class="mx-auto max-w-5xl px-5 pt-16 pb-12 sm:px-6 lg:pt-20 lg:pb-14">
 			<h1 class="flex justify-center"><BrandWordmark size="hero" /></h1>
-
-			<div class="mx-auto mt-14 max-w-3xl text-center">
-				<h2 class="display-title text-4xl text-slate-950 sm:text-6xl">
-					Jogos de estudantes.<br /><span class="text-arcade-gold">Diversão de arcade.</span>
-				</h2>
-				<p class="mt-6 text-lg leading-8 text-slate-600">
-					Descubra jogos criados com linguagens educacionais, reúna seus amigos em uma sala e
-					coloque também a sua criação no fliperama.
-				</p>
-
-				<div class="mt-8 flex flex-wrap justify-center gap-4">
-					<a href={resolve('/catalog')} class="primary-button">Escolher jogo</a>
-					<a href={resolve('/submit')} class="secondary-button">Publicar meu jogo</a>
-				</div>
-			</div>
+			<p class="mx-auto mt-7 max-w-xl text-center text-sm leading-6 text-slate-700 sm:text-base">
+				Descubra novos jogos, reúna seus amigos e comece uma partida.
+			</p>
 		</div>
 	</section>
 
-	<section class="mx-auto max-w-6xl px-5 py-16 sm:px-6">
-		<div class="mb-7 flex items-end justify-between gap-4">
-			<div>
-				<p class="eyebrow">How to play</p>
-				<h2 class="display-title mt-3 text-3xl text-slate-950 sm:text-4xl">
-					Três passos. Uma partida.
-				</h2>
-			</div>
-			<span class="hidden font-mono text-xs text-slate-500 sm:block">READY?</span>
-		</div>
-
-		<div class="grid gap-5 md:grid-cols-3">
-			<a href={resolve('/catalog')} class="arcade-panel-red group p-6">
-				<span
-					class="font-mono text-4xl font-black text-arcade-red transition group-hover:text-[#d36a6a]"
-					>01</span
+	<section>
+		<div class="mx-auto max-w-2xl px-5 pb-24 sm:px-6">
+			<div class="mb-5 flex items-center justify-between gap-4">
+				<h2 class="text-xs font-medium tracking-[0.08em] text-slate-800 uppercase">Destaques</h2>
+				<a href={resolve('/catalog')} class="secondary-button px-5 py-2 text-[11px]">Ver catálogo</a
 				>
-				<h3 class="mt-8 text-xl font-black text-slate-950">Encontre um jogo</h3>
-				<p class="mt-2 text-sm leading-6 text-slate-600">
-					Escolha entre projetos revisados e aprovados.
-				</p>
-			</a>
-			<a href={resolve('/catalog')} class="arcade-panel-blue group p-6">
-				<span
-					class="font-mono text-4xl font-black text-arcade-blue transition group-hover:text-indigo-300"
-					>02</span
-				>
-				<h3 class="mt-8 text-xl font-black text-slate-950">Abra uma sala</h3>
-				<p class="mt-2 text-sm leading-6 text-slate-600">
-					Defina seu apelido e chame a turma para jogar.
-				</p>
-			</a>
-			<a href={resolve('/submit')} class="arcade-panel-red group p-6">
-				<span class="font-mono text-4xl font-black text-arcade-gold">03</span>
-				<h3 class="mt-8 text-xl font-black text-slate-950">Entre no catálogo</h3>
-				<p class="mt-2 text-sm leading-6 text-slate-600">Envie seu código e acompanhe a revisão.</p>
-			</a>
-		</div>
-	</section>
-
-	<section class="border-t-2 border-arcade-line bg-[#101010]/70">
-		<div class="mx-auto max-w-6xl px-5 py-16 sm:px-6 lg:py-20">
-			<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
-				<div>
-					<p class="eyebrow">Now playing</p>
-					<h2 class="display-title mt-3 text-4xl text-slate-950">Jogos em destaque</h2>
-					<p class="mt-3 text-slate-600">Projetos aprovados e prontos para receber jogadores.</p>
-				</div>
-				<a href={resolve('/catalog')} class="secondary-button py-2.5 text-sm">Ver catálogo</a>
 			</div>
 
 			{#if isLoading}
-				<LoadingCards />
+				<LoadingCards variant="compact" />
 			{:else if error}
 				<Alert tone="error" message={error} onRetry={loadGames} />
 			{:else if previewGames.length === 0}
@@ -138,9 +69,9 @@
 					<a href={resolve('/pending')} class="secondary-button">Ver revisões</a>
 				</EmptyState>
 			{:else}
-				<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+				<div class="grid gap-3 sm:grid-cols-3">
 					{#each previewGames as game (game.id)}
-						<GameCard {game} />
+						<GameCard {game} variant="compact" />
 					{/each}
 				</div>
 			{/if}

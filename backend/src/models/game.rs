@@ -25,6 +25,7 @@ pub struct GameSummary {
 pub struct GameDetails {
     pub id: i64,
     pub revision_id: i64,
+    pub revision_number: i64,
     pub title: String,
     pub description: String,
     pub source_code: String,
@@ -36,6 +37,8 @@ pub struct GameDetails {
     pub is_featured: bool,
     pub review_message: Option<String>,
     pub created_at: String,
+    pub updated_at: String,
+    pub submitted_at: Option<String>,
     pub reviewed_at: Option<String>,
     pub has_thumbnail: bool,
     pub runtime_build_id: String,
@@ -43,6 +46,33 @@ pub struct GameDetails {
     pub runtime_name: String,
     pub runtime_version: String,
     pub source_extension: String,
+}
+
+#[derive(Serialize)]
+pub struct OwnedGame {
+    pub id: i64,
+    pub archived_at: Option<String>,
+    pub revisions: Vec<OwnedRevision>,
+}
+
+#[derive(Serialize)]
+pub struct OwnedRevision {
+    pub revision_id: i64,
+    pub revision_number: i64,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub min_players: i64,
+    pub max_players: i64,
+    pub review_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub submitted_at: Option<String>,
+    pub reviewed_at: Option<String>,
+    pub has_thumbnail: bool,
+    pub runtime_build_id: String,
+    pub runtime_name: String,
+    pub runtime_version: String,
 }
 
 #[derive(Serialize)]

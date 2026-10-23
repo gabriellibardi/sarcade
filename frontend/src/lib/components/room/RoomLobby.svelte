@@ -19,20 +19,30 @@
 		onKick: (playerId: number) => void;
 		onPromote: (playerId: number) => void;
 	} = $props();
+
+	const statusLabel = {
+		preparing: 'Preparando',
+		waiting: 'Aguardando',
+		running: 'Em partida',
+		failed: 'Falhou'
+	} as const;
+
+	const statusClass = {
+		preparing: 'bg-sky-950 text-sky-300',
+		waiting: 'bg-amber-950 text-amber-300',
+		running: 'bg-emerald-950 text-emerald-300',
+		failed: 'bg-red-950 text-red-300'
+	} as const;
 </script>
 
 <section class="surface-card overflow-hidden">
-	<div
-		class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 px-6 py-5"
-	>
+	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-5">
 		<div>
 			<p class="text-xs font-bold tracking-widest text-slate-400 uppercase">Lobby</p>
 			<h2 class="display-title mt-2 text-xl text-slate-950">Participantes</h2>
 		</div>
-		<span
-			class={`status-chip px-3 py-1 text-xs font-bold ${room.status === 'waiting' ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}
-		>
-			{room.status === 'waiting' ? 'Aguardando' : 'Em partida'}
+		<span class={`status-chip px-3 py-1 text-xs font-bold ${statusClass[room.status]}`}>
+			{statusLabel[room.status]}
 		</span>
 	</div>
 
@@ -41,11 +51,11 @@
 			<ul class="space-y-2">
 				{#each room.players as player (player.id)}
 					<li
-						class="flex flex-wrap items-center justify-between gap-3 border-2 border-slate-200 bg-slate-50/70 p-3"
+						class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-50/70 p-3"
 					>
 						<div class="flex min-w-0 items-center gap-3">
 							<span
-								class="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-indigo-300 bg-indigo-100 font-mono text-sm font-black text-indigo-300"
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-300/50 bg-indigo-100 text-sm font-bold text-indigo-300"
 								>{player.id}</span
 							>
 							<div class="min-w-0">
@@ -53,12 +63,12 @@
 								<p class="text-xs text-slate-500">
 									{player.id === myPlayerId ? 'Você' : 'Participante'}{player.is_host
 										? ' · host'
-										: ''}
+										: ''}{player.connected ? '' : ' · desconectado'}
 								</p>
 							</div>
 						</div>
 
-						{#if amHost && player.id !== myPlayerId}
+						{#if amHost && room.status === 'waiting' && player.id !== myPlayerId}
 							<div class="flex gap-1">
 								<button
 									type="button"
@@ -79,17 +89,21 @@
 		</div>
 
 		<aside
-			class="border-2 border-indigo-300 bg-[#11131d] p-5 text-sm text-slate-300 shadow-[4px_4px_0_#3d1a62]"
+			class="rounded-xl border border-indigo-300/35 bg-[#111522]/85 p-5 text-sm text-slate-300"
 		>
 			<p class="text-xs font-bold tracking-widest text-indigo-300 uppercase">Partida</p>
 			<dl class="mt-4 space-y-3">
 				<div>
 					<dt class="text-slate-500">Jogo</dt>
 					<dd>
-						<a
-							href={resolve('/games/[id]', { id: String(room.game_id) })}
-							class="font-bold text-white hover:underline">Jogo #{room.game_id}</a
-						>
+						{#if room.is_preview}
+							<span class="font-bold text-white">Revisão em teste</span>
+						{:else}
+							<a
+								href={resolve('/games/[id]', { id: String(room.game_id) })}
+								class="font-bold text-white hover:underline">Jogo #{room.game_id}</a
+							>
+						{/if}
 					</dd>
 				</div>
 				<div>
@@ -112,6 +126,10 @@
 			</button>
 			{#if !amHost}
 				<p class="mt-2 text-xs leading-5 text-slate-400">Somente o host pode iniciar.</p>
+			{:else if room.status === 'preparing'}
+				<p class="mt-2 text-xs leading-5 text-slate-400">Preparando o jogo.</p>
+			{:else if room.status === 'failed'}
+				<p class="mt-2 text-xs leading-5 text-red-300">Não foi possível preparar o jogo.</p>
 			{:else if room.players.length < room.min_players}
 				<p class="mt-2 text-xs leading-5 text-slate-400">Aguardando mais participantes.</p>
 			{/if}

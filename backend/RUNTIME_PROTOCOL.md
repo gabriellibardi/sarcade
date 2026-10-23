@@ -1,145 +1,102 @@
-# Protocolo temporário Sarcade ↔ runtime
+# Integração Sarcade ↔ runtime
 
-Este contrato permite integrar o servidor do Sarcade antes de o runtime real
-do Sgleam e o formato do Simage estarem disponíveis. Ele é deliberadamente
-pequeno: eventos entram no processo por `stdin` e imagens SVG saem por
-`stdout`.
+O Sarcade executa partidas somente por sessões Sinteract. Não existe runtime
+reserva: se o build selecionado não possuir um executor disponível, a criação
+da sala falha de forma explícita. Hoje o executor implementado é o Sgleam;
+outros runtimes devem fornecer a mesma fronteira antes de serem marcados como
+disponíveis no cadastro de builds.
 
-## Processo e ciclo de vida
+## Seleção e preparação
 
-Cada partida iniciada possui um processo de runtime. O backend reserva uma
-sessão ao criar a sala, mas só inicia o subprocesso quando recebe o comando
-`start`. No protótipo, o backend executa a si próprio como runtime reserva:
+Uma sala fixa um `RuntimeSpec` com a revisão, o build, o código-fonte, o
+SHA-256 e os limites de jogadores. Somente builds com estado `development` ou
+`active` podem ser publicados ou usados para abrir uma sala. O intervalo
+declarado pode conter no máximo 16 jogadores.
 
-```text
-backend runtime-stub game-<id>
-```
+O build Sgleam disponível não é um alias mutável: sua identidade combina a
+versão e o commit do submódulo (por exemplo, `sgleam-0.8.0-efa0773`), e o
+cadastro guarda também o commit completo e a versão do protocolo Sinteract.
+A migração do schema 4 converte referências antigas a `sgleam-dev` para esse
+build exato. Um build depreciado permanece no histórico, mas não abre novas
+salas nem recebe submissões.
 
-No futuro, esse ponto de criação será substituído por algo equivalente a:
+O build de release incorpora o executável Sgleam. Na inicialização, o backend
+materializa uma cópia privada que pode ser substituída, em desenvolvimento,
+por `SGLEAM_EXECUTABLE`. A ausência do executável não muda a semântica da
+partida nem ativa uma simulação; ela deixa o runtime indisponível.
+Quando há executável, o backend confere sua saída de `--version` contra a
+versão e o commit compilados no servidor antes de aceitar requisições.
 
-```text
-sgleam --server <caminho-do-jogo>
-```
+Para cada sessão, o backend cria um diretório aleatório com permissão `0700`
+em Unix e grava `game.<extensão>` com permissão `0600`. A extensão aceita
+somente um identificador ASCII, e o digest do arquivo é comparado ao da
+revisão. O caminho materializado é o único argumento entregue ao executor e o
+diretório é removido ao encerrar a sessão, inclusive após falhas.
 
-Uma tarefa Tokio possui o processo e escreve os comandos. Uma tarefa auxiliar
-mantém a leitura contínua de `stdout`; não há uma thread dedicada por partida.
-`stdin` e `stdout` são pipes anônimos criados com `Stdio::piped()`; mensagens de
-diagnóstico do runtime devem usar somente `stderr`, pois qualquer texto livre
-em `stdout` corrompe o protocolo.
+## Sessão Sinteract
 
-## Framing
+O processo recebe `SINTERACT_SESSION=1`. O descritor 3 transporta servidor →
+engine e o descritor 4 transporta engine → servidor, conforme o contrato
+versionado no submódulo Sinteract. `stdin` e `stdout` são descartados;
+`stderr` fica disponível para diagnóstico e nunca transporta mensagens da
+sessão.
 
-Cada mensagem, nos dois sentidos, tem este envelope:
+Uma tarefa Tokio possui o processo, `LobbyCore`, `ServerCore`, os pipes, o
+relógio e uma fila limitada a 128 comandos. Nenhum I/O do processo ocorre sob
+o mutex global das salas. Partidas e inspeções compartilham um semáforo global,
+configurável por `MAX_RUNTIME_PROCESSES` e limitado a 256. A vaga acompanha o
+ciclo de vida do processo e é liberada também em falhas. O ciclo é:
 
-```text
-+----------------------+-----------------------+
-| tamanho: u32 BE      | payload: tamanho bytes|
-+----------------------+-----------------------+
-```
+1. o processo nasce durante `Preparing`;
+2. `Hello` anuncia o intervalo de jogadores;
+3. o backend compara esse intervalo ao registrado na revisão e só então muda
+   a sala para `Waiting`;
+4. `Start` reaproveita o processo e congela a ordem dos participantes;
+5. cada conexão recebe um `Conn` que a associa ao jogador autenticado;
+6. `leave` libera as entradas da conexão, e uma reconexão invalida o `Conn`
+   anterior;
+7. ao fechar, o backend encerra o pipe, espera até dois segundos e mata o
+   processo se ele não terminar.
 
-- O tamanho é um inteiro de quatro bytes em ordem big-endian, compatível com
-  `AsyncReadExt::read_u32()` e `AsyncWriteExt::write_u32()`.
-- O payload é lido integralmente com `read_exact()`.
-- Tamanho zero é inválido.
-- O limite atual é 8 MiB, verificado antes da alocação.
-- EOF e payload truncado encerram a sessão do runtime.
+O servidor oferece oportunidades de apresentação a 60 Hz e descarta ticks
+atrasados. No Sgleam, isso não redefine o relógio lógico de `world`/`mworld`:
+`Tick` do `Stage` apresenta a cena mais recente, enquanto `on_tick` evolui no
+`tick_rate` declarado pelo jogo, com delta fixo implícito de
+`1 / tick_rate`.
 
-Este protocolo temporário não usa o magic `SIMG` nem a ordem little-endian do
-framing atual do Simage. A migração futura deve trocar o codec nos dois lados,
-sem alterar a responsabilidade do processo e da tarefa que o controla.
+## Navegador e WebSocket
 
-## Servidor → runtime
+O mesmo WebSocket `sarcade.room.v1` usa mensagens JSON textuais para o lobby e
+payloads Sinteract binários durante `Running`. O navegador não envia
+`player_id`: a conexão e sua geração determinam o assento. O backend entrega
+o binário a `ServerCore::from_view` e encaminha a saída de
+`ServerCore::next_for` apenas à conexão correspondente.
 
-O payload é JSON UTF-8. Toda mensagem possui `protocol_version: 2` e um campo
-`type`.
+Mensagens e frames recebidos pelo WebSocket têm limite de 64 KiB. O envio a
+um cliente tem timeout de dois segundos; um consumidor atrasado é desconectado
+sem bloquear os demais. O estado do jogo permanece privado ao processo, e o
+frontend recebe somente assets e quadros definidos pelo Sinteract.
 
-Início da partida:
+## Inspeção de submissões
 
-```json
-{
-  "protocol_version": 2,
-  "type": "start",
-  "game_id": 42,
-  "players": [
-    { "id": 1, "nickname": "Ana" },
-    { "id": 2, "nickname": "Beto" }
-  ]
-}
-```
+A inspeção de código abre uma sessão separada, lê somente o `PlayerRange` do
+`Hello` e encerra o processo. Nenhum participante é conectado e nenhum
+`Start` é enviado, portanto o laço de `world`/`mworld` não começa. O prazo é de
+15 segundos e o diagnóstico capturado de `stderr` é limitado a 32 KiB.
 
-Entrada de jogador:
+O valor encontrado é mostrado ao autor e inspecionado novamente pelo backend
+ao salvar o rascunho. Assim, `min_players` e `max_players` não são aceitos do
+formulário.
 
-```json
-{
-  "protocol_version": 2,
-  "type": "input",
-  "player_id": 2,
-  "event": { "type": "paddown", "input": "Left" }
-}
-```
+## Testes
 
-As variantes de `event` atualmente aceitas são `keydown`, `keyup`, `paddown`
-e `padup`. O servidor obtém `player_id` da própria conexão WebSocket; o cliente
-não escolhe em nome de qual jogador o evento será executado.
+Os testes de ciclo de vida podem iniciar o próprio binário do backend no
+subcomando privado `sinteract-test-engine`. Essa fixture implementa a sessão
+Sinteract real e nunca é selecionada por uma sala de produção. O teste com a
+feature `embedded-sgleam` executa um `mworld` de dois jogadores no executável
+incorporado e valida quadros distintos e evolução lógica.
 
-Outros comandos:
-
-```json
-{ "protocol_version": 2, "type": "player_left", "player_id": 2 }
-{ "protocol_version": 2, "type": "tick" }
-{ "protocol_version": 2, "type": "stop" }
-```
-
-O comando `tick` já está reservado no contrato, mas esta integração inicial
-ainda não inicia um relógio de ticks.
-
-## Runtime → servidor
-
-Cada payload de saída é um frame visual direcionado:
-
-```text
-+------------------+----------------+---------------------+------------------+
-| versão: u32 BE   | tipo: u8       | player_id: u64 BE   | SVG: bytes       |
-| 2                | 1 = frame      | destinatário        | restante         |
-+------------------+----------------+---------------------+------------------+
-```
-
-O `u32` externo do framing contém o tamanho de todo esse payload: 13 bytes de
-cabeçalho mais o SVG. O SVG permanece em bytes UTF-8 brutos; ele não contém nem
-precisa incorporar metadados de roteamento.
-
-`player_id` é o identificador estável da sessão atribuído pelo Sarcade e
-informado ao runtime no comando `start`. O runtime não pode escolher um usuário
-global ou um participante de outra sala.
-
-Não existe relação obrigatória de uma resposta por comando. Uma mudança de
-estado pode produzir zero ou vários frames, normalmente um para cada jogador
-ativo, e o runtime pode produzir frames por causa de ticks. O backend mantém
-uma leitura contínua de `stdout`, preserva a ordem do pipe e encaminha cada
-frame somente ao WebSocket cujo `player_id` corresponde ao destinatário.
-
-O backend valida versão, tipo, tamanho, UTF-8 e o início `<svg` antes de
-encaminhar ao cliente correto:
-
-```json
-{ "type": "frame", "svg": "<svg ...>...</svg>" }
-```
-
-O navegador substitui sua imagem anterior por esse frame. O SVG é usado como
-fonte de um elemento `img`, e não inserido como HTML executável.
-
-## Ordenação e backpressure
-
-- A fila é criada por sala e possui um único consumidor.
-- `start` é sempre a primeira mensagem do subprocesso.
-- Entradas são enfileiradas na ordem em que o backend as aceita.
-- A fila de comandos é limitada a 128 mensagens.
-- A fila de saída é limitada a 32 frames direcionados.
-- Fila cheia ou processo encerrado produz erro controlado; não bloqueia o
-  mutex global de salas durante I/O.
-- A tarefa leitora completa cada `read_u32`/`read_exact` sem cancelá-lo no meio;
-  comandos novos não interrompem uma leitura parcialmente iniciada.
-
-O protocolo não contém estado Gleam. Quando o runtime real for conectado, o
-estado do jogo permanece privado ao processo; o Sarcade envia eventos e recebe
-somente a representação visual.
+`make check` também compila o runtime fixado e executa automaticamente os
+cenários `embedded_sgleam`: identidade do executável, inspeção de limites de
+`world`/`mworld` e partida com dois participantes. Assim, a integração real não
+depende apenas do teste manual em navegadores.

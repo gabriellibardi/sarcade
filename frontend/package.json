@@ -2,6 +2,11 @@
 	"name": "frontend",
 	"private": true,
 	"version": "0.0.1",
+	"packageManager": "npm@11.19.1",
+	"engines": {
+		"node": ">=24 <25",
+		"npm": ">=11 <12"
+	},
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
@@ -36,5 +41,8 @@
 		"typescript": "^6.0.2",
 		"typescript-eslint": "^8.58.1",
 		"vite": "^8.0.7"
+	},
+	"dependencies": {
+		"capnp-es": "^0.0.16"
 	}
 }

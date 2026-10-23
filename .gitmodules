@@ -1,0 +1,6 @@
+[submodule "sinteract"]
+	path = sinteract
+	url = https://github.com/malbarbo/sinteract.git
+[submodule "sgleam"]
+	path = sgleam
+	url = https://github.com/gabriellibardi/sgleam.git

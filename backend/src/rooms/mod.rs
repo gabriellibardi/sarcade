@@ -3,4 +3,4 @@ pub mod service;
 pub mod store;
 
 pub use model::*;
-pub use store::{new_store, RoomStore};
+pub use store::{RoomStore, new_store};
