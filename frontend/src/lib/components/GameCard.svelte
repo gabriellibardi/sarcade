@@ -11,7 +11,7 @@
 </script>
 
 <article
-	class={`group relative flex h-full flex-col overflow-hidden transition duration-200 focus-within:-translate-y-1 hover:-translate-y-1 ${isCompact ? 'rounded-[3px] border border-white/8 bg-[#11151d] shadow-[0_16px_40px_rgb(0_0_0/0.38)] focus-within:border-arcade-red/70 hover:border-arcade-red/70 hover:shadow-[0_20px_48px_rgb(0_0_0/0.46)]' : 'rounded-xl border border-white/10 bg-[#0d1016]/92 shadow-[0_18px_60px_rgb(0_0_0/0.3)] backdrop-blur-md focus-within:border-arcade-red/70 hover:border-arcade-red/70 hover:shadow-[0_22px_70px_rgb(0_0_0/0.38)]'}`}
+	class={`group relative flex h-full flex-col overflow-hidden transition duration-200 focus-within:-translate-y-1 hover:-translate-y-1 ${isCompact ? 'rounded-[3px] border border-white/8 bg-[#11151d] shadow-[0_5px_0_#29224b,0_16px_40px_rgb(0_0_0/0.38)] focus-within:border-arcade-red/70 hover:border-arcade-red/70 hover:shadow-[0_6px_0_#302755,0_20px_48px_rgb(0_0_0/0.46)]' : 'rounded-xl border border-white/10 bg-[#0d1016]/92 shadow-[0_18px_60px_rgb(0_0_0/0.3)] backdrop-blur-md focus-within:border-arcade-red/70 hover:border-arcade-red/70 hover:shadow-[0_22px_70px_rgb(0_0_0/0.38)]'}`}
 >
 	<a
 		href={resolve('/games/[id]', { id: String(game.id) })}
@@ -81,9 +81,7 @@
 					</span>
 				{/if}
 
-				<span
-					class="shrink-0 rounded-full bg-arcade-red px-2 py-0.5 text-[8px] font-medium text-white"
-				>
+				<span class="player-count-badge shrink-0 px-2 py-0.5 text-[8px] font-medium">
 					{playerLabel}
 				</span>
 			</div>
@@ -96,9 +94,7 @@
 				>
 					{game.title}
 				</h3>
-				<span
-					class="status-chip shrink-0 bg-slate-100/80 px-2 py-1 text-[10px] font-semibold text-slate-600"
-				>
+				<span class="player-count-badge shrink-0 px-2 py-1 text-[10px] font-semibold">
 					{playerLabel}
 				</span>
 			</div>

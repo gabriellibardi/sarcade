@@ -56,13 +56,6 @@
 		min-width: 320px;
 		min-height: 100vh;
 		background-color: #080b0e;
-		background-image:
-			linear-gradient(180deg, rgb(5 7 10 / 0.04), rgb(5 7 10 / 0.28)),
-			url('../lib/assets/sarcade-background.png');
-		background-position: center bottom;
-		background-size: cover;
-		background-attachment: fixed;
-		background-repeat: no-repeat;
 	}
 
 	button,
@@ -86,6 +79,19 @@
 }
 
 @layer components {
+	.site-background {
+		position: fixed;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+		background-image:
+			linear-gradient(180deg, rgb(5 7 10 / 0.04), rgb(5 7 10 / 0.28)),
+			url('../lib/assets/sarcade-background.png');
+		background-position: center bottom;
+		background-size: cover;
+		background-repeat: no-repeat;
+	}
+
 	.page-shell {
 		width: 100%;
 		max-width: 72rem;
@@ -270,6 +276,20 @@
 		letter-spacing: 0.01em;
 	}
 
+	.player-count-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid rgb(151 166 198 / 0.62);
+		border-radius: 999px;
+		background: linear-gradient(180deg, #68758f, #4a5773);
+		box-shadow:
+			0 3px 0 #29344f,
+			0 8px 18px rgb(3 8 20 / 0.28);
+		color: #f4f6fb;
+		line-height: 1.15;
+	}
+
 	@media (min-width: 640px) {
 		.page-shell {
 			padding-inline: 1.5rem;
@@ -284,8 +304,7 @@
 }
 
 @media (max-width: 767px) {
-	body {
-		background-attachment: scroll;
+	.site-background {
 		background-position: 52% bottom;
 	}
 }
