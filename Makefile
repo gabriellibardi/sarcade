@@ -12,15 +12,15 @@ BACKEND_MANIFEST := backend/Cargo.toml
 BINARY := backend/target/$(TARGET)/release/backend
 SGLEAM_MANIFEST := sgleam/Cargo.toml
 SGLEAM_BINARY := sgleam/target/$(TARGET)/release/sgleam
+RELEASE_DIR ?= release
 
-.PHONY: build backend frontend sgleam-runtime setup check check-runtime verify-sources help
+.PHONY: build backend frontend sgleam-runtime release-bundle setup check check-runtime verify-sources help
 
 build: backend
 
-backend: verify-sources frontend sgleam-runtime
-	SARCADE_SGLEAM_BINARY="$(abspath $(SGLEAM_BINARY))" \
-		$(CARGO) build --locked --release --target $(TARGET) \
-		--manifest-path $(BACKEND_MANIFEST) --features embedded-sgleam
+backend: verify-sources frontend
+	$(CARGO) build --locked --release --target $(TARGET) \
+		--manifest-path $(BACKEND_MANIFEST)
 	@printf '\nBinário gerado em %s\n' "$(BINARY)"
 
 frontend:
@@ -29,6 +29,12 @@ frontend:
 sgleam-runtime: verify-sources
 	$(CARGO) build --locked --release --target $(TARGET) \
 		--manifest-path $(SGLEAM_MANIFEST) -p sgleam --bin sgleam
+
+release-bundle: backend sgleam-runtime
+	mkdir -p "$(RELEASE_DIR)/bin"
+	install -m 0755 "$(BINARY)" "$(RELEASE_DIR)/bin/sarcade"
+	./scripts/package-runtime.sh "$(SGLEAM_BINARY)" "$(RELEASE_DIR)"
+	@printf '\nRelease gerado em %s\n' "$(RELEASE_DIR)"
 
 setup:
 	git submodule update --init --recursive
@@ -46,16 +52,16 @@ check: verify-sources
 	$(MAKE) check-runtime
 
 check-runtime: sgleam-runtime
-	SARCADE_SGLEAM_BINARY="$(abspath $(SGLEAM_BINARY))" \
-		$(CARGO) test --locked --manifest-path $(BACKEND_MANIFEST) \
-		--features embedded-sgleam embedded_sgleam
+	SGLEAM_TEST_EXECUTABLE="$(abspath $(SGLEAM_BINARY))" \
+		$(CARGO) test --locked --manifest-path $(BACKEND_MANIFEST) installed_sgleam
 
 help:
 	@printf '%s\n' \
 		'make          Compila o frontend e gera o binário Linux MUSL' \
+		'make release-bundle Gera backend, runtime externo e manifesto' \
 		'make setup    Instala as dependências e o target MUSL' \
 		'make check    Executa as verificações do frontend e do backend' \
 		'make check-runtime Testa inspeção e partidas no Sgleam incorporado' \
 		'make verify-sources Confere os commits dos runtimes fixados' \
 		'make frontend Compila somente o frontend' \
-		'make sgleam-runtime Compila o runtime Sgleam MUSL incorporado'
+		'make sgleam-runtime Compila o executável Sgleam MUSL externo'
