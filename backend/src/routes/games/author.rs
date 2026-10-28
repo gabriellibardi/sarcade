@@ -543,11 +543,14 @@ mod tests {
     }
 
     fn state_with_revision(status: &str) -> (AppState, CookieJar) {
-        use backend::game_runtime::version::SGLEAM_BUILD_ID;
+        use backend::game_runtime::RuntimeCatalog;
+
+        use crate::db::{TEST_RUNTIME_BUILD_ID, install_test_runtime};
 
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         crate::db::initialize_schema(&conn).unwrap();
+        install_test_runtime(&conn, "active").unwrap();
         conn.execute(
             "INSERT INTO users (email, name) VALUES ('autor@example.com', 'Autora')",
             [],
@@ -571,13 +574,13 @@ mod tests {
             )
             VALUES (1, 1, 1, ?1, 'Jogo', 'Descrição', 'fonte', ?2, datetime('now'))
             ",
-            [SGLEAM_BUILD_ID, status],
+            [TEST_RUNTIME_BUILD_ID, status],
         )
         .unwrap();
         let state = AppState::new(
             Arc::new(Mutex::new(conn)),
             AuthService::new(None, vec![]),
-            None,
+            RuntimeCatalog::default(),
             4,
         );
         let jar = CookieJar::new().add(Cookie::new(SESSION_COOKIE, "author-token"));

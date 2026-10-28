@@ -7,8 +7,7 @@ mod rooms;
 mod routes;
 mod state;
 
-use backend::game_runtime::SgleamExecutable;
-use backend::game_runtime::version::{SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SINTERACT_GIT_COMMIT};
+use backend::game_runtime::RuntimeCatalog;
 use config::Config;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -36,28 +35,32 @@ async fn main() {
         max_runtime_processes = config.max_runtime_processes,
         "limite compartilhado de processos de runtime configurado"
     );
-    let sgleam_executable =
-        SgleamExecutable::configured(config.sgleam_executable).unwrap_or_else(|error| {
-            tracing::error!(%error, "falha ao preparar runtime Sgleam");
-            std::process::exit(1);
-        });
-    if let Some(executable) = &sgleam_executable
-        && let Err(error) = executable.verify_build_identity()
-    {
-        tracing::error!(%error, "build do runtime Sgleam incompatível");
+    let runtimes = RuntimeCatalog::load(&config.runtime_manifest).unwrap_or_else(|error| {
+        tracing::error!(
+            manifest = %config.runtime_manifest.display(),
+            %error,
+            "falha ao carregar runtimes instalados"
+        );
         std::process::exit(1);
+    });
+    for runtime in runtimes.iter() {
+        tracing::info!(
+            runtime_build = runtime.id(),
+            runtime = runtime.runtime(),
+            version = runtime.display_version(),
+            executable = %runtime.executable().display(),
+            "runtime instalado verificado"
+        );
     }
-    tracing::info!(
-        runtime_build = SGLEAM_BUILD_ID,
-        sgleam_commit = SGLEAM_GIT_COMMIT,
-        sinteract_commit = SINTERACT_GIT_COMMIT,
-        "build de runtime verificado"
-    );
     let db = db::init(&config.database_url);
+    db::sync_runtime_catalog(&db, &runtimes).unwrap_or_else(|error| {
+        tracing::error!(%error, "falha ao sincronizar catálogo de runtimes");
+        std::process::exit(1);
+    });
     auth::sync_admin_roles(&db, &config.admin_emails)
         .expect("falha ao sincronizar administradores");
     let auth = auth::AuthService::new(config.google_oauth, config.admin_emails);
-    let state = state::AppState::new(db, auth, sgleam_executable, config.max_runtime_processes);
+    let state = state::AppState::new(db, auth, runtimes, config.max_runtime_processes);
     let app = routes::router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);

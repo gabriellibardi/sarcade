@@ -29,7 +29,7 @@ pub async fn get_thumbnail(
             WHERE games.id = ?1
               AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
-              AND runtime_builds.status IN ('development', 'active')
+              AND runtime_builds.status IN ('active', 'deprecated')
             ORDER BY COALESCE(game_revisions.reviewed_at, game_revisions.created_at) DESC,
                      game_revisions.id DESC
             LIMIT 1

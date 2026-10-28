@@ -5,7 +5,7 @@ use crate::{
     db::Db,
     rooms::{RoomStore, new_store},
 };
-use backend::game_runtime::SgleamExecutable;
+use backend::game_runtime::RuntimeCatalog;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 #[derive(Clone)]
@@ -13,7 +13,7 @@ pub struct AppState {
     pub auth: AuthService,
     pub db: Db,
     pub rooms: RoomStore,
-    pub sgleam_executable: Option<SgleamExecutable>,
+    pub runtimes: RuntimeCatalog,
     runtime_processes: std::sync::Arc<Semaphore>,
 }
 
@@ -21,14 +21,14 @@ impl AppState {
     pub fn new(
         db: Db,
         auth: AuthService,
-        sgleam_executable: Option<SgleamExecutable>,
+        runtimes: RuntimeCatalog,
         max_runtime_processes: usize,
     ) -> Self {
         Self {
             auth,
             db,
             rooms: new_store(),
-            sgleam_executable,
+            runtimes,
             runtime_processes: std::sync::Arc::new(Semaphore::new(max_runtime_processes)),
         }
     }
@@ -62,6 +62,8 @@ mod tests {
 
     use rusqlite::Connection;
 
+    use backend::game_runtime::RuntimeCatalog;
+
     use super::AppState;
     use crate::auth::AuthService;
 
@@ -70,7 +72,7 @@ mod tests {
         let state = AppState::new(
             Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             AuthService::new(None, Vec::new()),
-            None,
+            RuntimeCatalog::default(),
             1,
         );
 

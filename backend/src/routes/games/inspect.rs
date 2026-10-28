@@ -9,10 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 
-use backend::game_runtime::{
-    MAX_PLAYERS_PER_GAME, PlayerLimits, inspect_sgleam_players,
-    version::{SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SINTERACT_PROTOCOL_VERSION},
-};
+use backend::game_runtime::{MAX_PLAYERS_PER_GAME, PlayerLimits, inspect_sgleam_players};
 
 use crate::{auth::current_user, state::AppState};
 
@@ -108,7 +105,7 @@ pub(crate) async fn inspect_source_code(
     source_code: &str,
     uploaded_filename: Option<&str>,
 ) -> Result<InspectedSource, (StatusCode, String)> {
-    let (runtime, source_extension) = {
+    let (runtime, display_version, git_commit, protocol_version, source_extension) = {
         let conn = state.db.lock().map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -117,19 +114,21 @@ pub(crate) async fn inspect_source_code(
         })?;
         conn.query_row(
             "
-            SELECT runtime, source_extension
+            SELECT runtime, display_version, git_commit, protocol_version, source_extension
             FROM runtime_builds
             WHERE id = ?1
               AND status IN ('development', 'active')
-              AND git_commit = ?2
-              AND protocol_version = ?3
             ",
-            rusqlite::params![
-                runtime_build_id,
-                SGLEAM_GIT_COMMIT,
-                SINTERACT_PROTOCOL_VERSION
-            ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            [runtime_build_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -139,10 +138,19 @@ pub(crate) async fn inspect_source_code(
         ))?
     };
 
-    if runtime_build_id != SGLEAM_BUILD_ID {
+    let installed = state.runtimes.get(runtime_build_id).ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Ambiente de execução indisponível para analisar o jogo".to_string(),
+    ))?;
+    if installed.runtime() != runtime
+        || installed.display_version() != display_version
+        || Some(installed.git_commit()) != git_commit.as_deref()
+        || Some(i64::from(installed.protocol_version())) != protocol_version
+        || installed.source_extension() != source_extension
+    {
         return Err((
-            StatusCode::BAD_REQUEST,
-            "Linguagem ou versão inválida ou indisponível".into(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "O runtime instalado não corresponde ao build cadastrado".into(),
         ));
     }
 
@@ -159,10 +167,6 @@ pub(crate) async fn inspect_source_code(
         ));
     }
 
-    let executable = state.sgleam_executable.as_ref().ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        "Ambiente de execução indisponível para analisar o jogo".to_string(),
-    ))?;
     let _runtime_permit = state.reserve_runtime_process().map_err(|_| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -171,7 +175,7 @@ pub(crate) async fn inspect_source_code(
         )
     })?;
     let limits = inspect_sgleam_players(
-        executable.path().to_path_buf(),
+        installed.executable().to_path_buf(),
         source_code.to_string(),
         source_extension,
     )
