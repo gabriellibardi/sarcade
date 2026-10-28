@@ -145,9 +145,8 @@ async fn embedded_sgleam_inspection_reads_world_and_mworld_limits() {
 import sgleam/image
 import sgleam/world
 
-pub fn main() {
+pub fn smain() {
   world.create(0, fn(_) { image.rectangle(10, 10, fill.black) })
-  |> world.run()
 }
 "#
         .into(),
@@ -161,11 +160,10 @@ pub fn main() {
 import sgleam/image
 import sgleam/mworld
 
-pub fn main() {
+pub fn smain() {
   mworld.create(0, min: 2, max: 4, to_image: fn(_, _) {
     image.rectangle(10, 10, fill.black)
   })
-  |> mworld.run()
 }
 "#
         .into(),
@@ -238,7 +236,7 @@ fn sgleam_runtime_spec() -> RuntimeSpec {
 import sgleam/image
 import sgleam/mworld
 
-pub fn main() {
+pub fn smain() {
   mworld.create(0, min: 2, max: 2, to_image: fn(state, player) {
     image.rectangle(
       320 + state,
@@ -248,7 +246,6 @@ pub fn main() {
   })
   |> mworld.tick_rate(20)
   |> mworld.on_tick(fn(state) { state + 1 })
-  |> mworld.run()
 }
 "#
         .into(),
