@@ -1,12 +1,12 @@
 use std::{io, path::PathBuf, process::Stdio, time::Duration};
 
 use sinteract::{
-    server::LobbyCore,
-    session::{ENGINE_TO_SERVER_FD, PlayerRange, SERVER_TO_ENGINE_FD, SESSION_VAR},
+    server::Lobby,
+    session::{ENGINE_TO_SERVER_FD, PlayerRange, SERVER_TO_ENGINE_FD},
 };
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use super::MaterializedSource;
+use super::{MaterializedSource, sinteract_process::sgleam_server_args};
 
 const INSPECTION_TIMEOUT: Duration = Duration::from_secs(15);
 const READ_BYTES: usize = 64 * 1024;
@@ -61,10 +61,9 @@ async fn inspect_unix(
     let (from_engine, engine_writes) = pipe()?;
     let mut command = StdCommand::new(executable);
     command
-        .arg(materialized.source_path())
+        .args(sgleam_server_args(materialized.source_path()))
         .current_dir(materialized.directory())
         .env_clear()
-        .env(SESSION_VAR, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -123,7 +122,7 @@ async fn inspect_unix(
 }
 
 async fn read_player_limits(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<PlayerLimits> {
-    let mut lobby = LobbyCore::new();
+    let mut lobby = Lobby::new();
     let mut buffer = vec![0; READ_BYTES];
 
     loop {
@@ -139,7 +138,7 @@ async fn read_player_limits(reader: &mut (impl AsyncRead + Unpin)) -> io::Result
             .from_engine(&buffer[..read])
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
 
-        if let Some(range) = lobby.players() {
+        if let Some(range) = lobby.player_range() {
             return Ok(limits(range));
         }
     }

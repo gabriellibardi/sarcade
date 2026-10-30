@@ -1,15 +1,16 @@
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsString,
     io,
-    num::NonZeroU32,
-    path::PathBuf,
+    num::NonZeroU16,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 
 use sinteract::{
-    server::{Conn, LobbyCore, Next, ServerCore},
-    session::{Player, PlayerRange},
+    server::{Broken, Conn, EngineError, Lobby, Next, Room},
+    session::{FrameRate, Player, PlayerRange},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -21,8 +22,8 @@ use super::{MAX_PLAYERS_PER_GAME, MaterializedSource, RuntimeSpec};
 const COMMAND_QUEUE_CAPACITY: usize = 128;
 const STATUS_QUEUE_CAPACITY: usize = 16;
 const READ_BYTES: usize = 64 * 1024;
-const TICK_RATE: NonZeroU32 = NonZeroU32::new(60_000).expect("60 Hz is not zero");
-const TICK_PERIOD: Duration = Duration::from_nanos(1_000_000_000_000 / TICK_RATE.get() as u64);
+const FRAME_RATE: FrameRate = FrameRate::from_hz(NonZeroU16::new(60).expect("60 Hz is not zero"));
+const FRAME_PERIOD: Duration = FRAME_RATE.period();
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,8 +55,8 @@ pub struct SinteractHandle {
 }
 
 impl SinteractHandle {
-    /// Prepare a Sinteract session by running `executable` with the exact
-    /// approved source path as its only argument.
+    /// Prepare a Sinteract session by running `executable server` with the
+    /// exact approved source path.
     pub fn reserve(
         spec: RuntimeSpec,
         executable: PathBuf,
@@ -163,7 +164,7 @@ impl SinteractHandle {
     }
 
     /// Queue the start without waiting for pipe I/O. Commands queued after it
-    /// observe the resulting `ServerCore` because the actor is serial.
+    /// observe the resulting `Room` because the actor is serial.
     pub fn try_start(&self, players: Vec<SinteractPlayer>) -> Result<(), SinteractCommandError> {
         let (reply, _ignored) = oneshot::channel();
         self.commands
@@ -283,9 +284,9 @@ async fn request<T>(
 }
 
 enum Core {
-    Lobby(Option<LobbyCore>),
+    Lobby(Option<Lobby>),
     Running {
-        server: ServerCore,
+        server: Room,
         players: HashMap<u64, Player>,
     },
 }
@@ -336,7 +337,7 @@ async fn run_unix_session(
     };
 
     use command_fds::{CommandFdExt, FdMapping};
-    use sinteract::session::{ENGINE_TO_SERVER_FD, SERVER_TO_ENGINE_FD, SESSION_VAR};
+    use sinteract::session::{ENGINE_TO_SERVER_FD, SERVER_TO_ENGINE_FD};
 
     if spec.runtime_status() == "unavailable" {
         return Err(io::Error::new(
@@ -354,10 +355,7 @@ async fn run_unix_session(
     .map_err(|error| io::Error::other(format!("runtime materialization task failed: {error}")))??;
 
     let (executable, args) = match launch {
-        Launch::Runtime(executable) => (
-            executable,
-            vec![materialized.source_path().as_os_str().to_owned()],
-        ),
+        Launch::Runtime(executable) => (executable, sgleam_server_args(materialized.source_path())),
         Launch::Fixture(executable) => (
             executable,
             vec![
@@ -375,7 +373,6 @@ async fn run_unix_session(
         .args(args)
         .current_dir(materialized.directory())
         .env_clear()
-        .env(SESSION_VAR, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -444,10 +441,10 @@ where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
 {
-    let mut core = Core::Lobby(Some(LobbyCore::new()));
+    let mut core = Core::Lobby(Some(Lobby::new()));
     let mut read_buffer = vec![0; READ_BYTES];
     let mut ready_sent = false;
-    let mut ticker = tokio::time::interval(TICK_PERIOD);
+    let mut ticker = tokio::time::interval(FRAME_PERIOD);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
@@ -472,9 +469,7 @@ where
                             ));
                         }
                         Core::Running { server, .. } => {
-                            if let Some(error) = server.engine_ended() {
-                                return Err(io::Error::new(io::ErrorKind::InvalidData, error));
-                            }
+                            server.engine_ended()?;
                             notify(changes);
                             let _ = statuses.send(SinteractStatus::Ended).await;
                             return Ok(());
@@ -491,7 +486,7 @@ where
                         let lobby = lobby
                             .from_engine(bytes)
                             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                        if let Some(range) = lobby.players() {
+                        if let Some(range) = lobby.player_range() {
                             validate_range(spec, range)?;
                             if !ready_sent {
                                 statuses
@@ -507,9 +502,7 @@ where
                         *lobby_slot = Some(lobby);
                     }
                     Core::Running { server, .. } => {
-                        for error in server.from_engine(bytes) {
-                            tracing::warn!(%error, "Sinteract descartou saída inválida da engine");
-                        }
+                        handle_engine_messages(server.from_engine(bytes))?;
                         flush_engine(server, to_engine).await?;
                         notify(changes);
                     }
@@ -634,7 +627,7 @@ fn start_core(
         return Err(SinteractCommandError::AlreadyStarted);
     };
     let lobby = lobby_slot.take().ok_or(SinteractCommandError::NotReady)?;
-    if lobby.players().is_none() {
+    if lobby.player_range().is_none() {
         *lobby_slot = Some(lobby);
         return Err(SinteractCommandError::NotReady);
     }
@@ -643,7 +636,7 @@ fn start_core(
         .iter()
         .map(|player| player.nickname.as_str())
         .collect();
-    let server = match lobby.start(&nicknames, TICK_RATE) {
+    let server = match lobby.start(&nicknames, FRAME_RATE) {
         Ok(server) => server,
         Err((lobby, _)) => {
             *lobby_slot = Some(lobby);
@@ -670,7 +663,7 @@ where
     to_engine.shutdown().await
 }
 
-async fn flush_engine<W>(server: &mut ServerCore, writer: &mut W) -> io::Result<()>
+async fn flush_engine<W>(server: &mut Room, writer: &mut W) -> io::Result<()>
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
@@ -712,6 +705,27 @@ fn notify(changes: &watch::Sender<u64>) {
     changes.send_replace(next);
 }
 
+pub(crate) fn sgleam_server_args(source: &Path) -> Vec<OsString> {
+    vec!["server".into(), source.as_os_str().to_owned()]
+}
+
+fn handle_engine_messages(result: Result<Vec<EngineError>, Broken>) -> io::Result<()> {
+    match result {
+        Ok(dropped) => log_dropped_engine_messages(dropped),
+        Err(broken) => {
+            log_dropped_engine_messages(broken.dropped);
+            return Err(broken.error);
+        }
+    }
+    Ok(())
+}
+
+fn log_dropped_engine_messages(dropped: Vec<EngineError>) {
+    for error in dropped {
+        tracing::warn!(%error, "Sinteract descartou saída inválida da engine");
+    }
+}
+
 #[cfg(unix)]
 pub fn run_test_engine_from_fds() -> io::Result<()> {
     use std::{fs::File, os::fd::FromRawFd};
@@ -738,7 +752,7 @@ pub fn run_test_engine_from_fds() -> io::Result<()> {
 
     loop {
         match session.wait()? {
-            SessionEvent::Tick => {
+            SessionEvent::Frame => {
                 for (player, _) in &players {
                     session
                         .write_frame(Target::Player(*player), &Scene::new(320.0, 240.0))
@@ -765,4 +779,32 @@ fn parse_player_limit(value: Option<String>, name: &str) -> io::Result<u32> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("missing {name}")))?
         .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid {name}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{ffi::OsString, io, num::NonZeroU32, path::Path};
+
+    use sinteract::server::{Broken, EngineError};
+
+    use super::{handle_engine_messages, sgleam_server_args};
+
+    #[test]
+    fn launches_sgleam_through_the_server_subcommand() {
+        assert_eq!(
+            sgleam_server_args(Path::new("game.gleam")),
+            vec![OsString::from("server"), OsString::from("game.gleam")],
+        );
+    }
+
+    #[test]
+    fn a_broken_engine_stream_reports_its_fatal_error_after_dropped_messages() {
+        let fatal = io::Error::new(io::ErrorKind::InvalidData, "broken engine stream");
+        let result = handle_engine_messages(Err(Broken {
+            error: fatal,
+            dropped: vec![EngineError::NoSeat(NonZeroU32::new(2).unwrap())],
+        }));
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
 }
