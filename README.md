@@ -183,6 +183,10 @@ compatíveis podem ser instalados lado a lado e acrescentados ao array
 `runtimes` do manifesto. Cada réplica do Sarcade precisa receber os mesmos
 artefatos que pretende executar.
 
+Inspeções e partidas iniciam esse build com `sgleam server game.gleam`. A
+sessão usa os descritores 3 e 4 do Sinteract e não depende de uma variável de
+ambiente para selecionar o modo servidor.
+
 Use `make check` para executar as verificações do frontend, os testes Rust, o
 Clippy e os cenários integrados no Sgleam externo. Estes últimos compilam
 programas `world` e `mworld`, inspecionam seus limites e executam uma sessão

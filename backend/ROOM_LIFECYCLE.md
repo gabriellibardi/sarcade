@@ -25,7 +25,8 @@ criação antes de executar código. Uma engine que encerra inesperadamente muda
 a sala para `Failed`; ela não permanece falsamente em `Running`.
 
 O backend materializa o código em um diretório privado por sessão e nunca usa
-um nome ou caminho fornecido pelo autor no comando. A inspeção de uma
+um nome ou caminho fornecido pelo autor no comando. O runtime recebe o caminho
+somente como argumento posicional de `sgleam server`. A inspeção de uma
 submissão usa outra sessão, limitada ao `Hello`, sem admitir jogadores nem
 iniciar o laço do jogo.
 
@@ -82,21 +83,21 @@ cliente é recusado e binários são payloads Sinteract completos, sem envelope
 adicional do Sarcade. Ping/Pong nativo mantém a conexão viva.
 
 O backend associa cada ação ao jogador e à geração autenticados pela conexão.
-`ServerCore::from_view` recebe as entradas, e `ServerCore::next_for` entrega
-assets e quadros somente ao destinatário correto. O frontend usa a view do
+`Room::from_view` recebe as entradas, e `Room::next_for` entrega assets e
+quadros somente ao destinatário correto. O frontend usa a view do
 Sinteract sobre o canvas, sem conhecer a linguagem que implementa o jogo.
 
 O envio possui timeout de dois segundos. Cliente lento ou receptor que perdeu
 mensagens é desconectado sem bloquear outros participantes. Uma sala vazia em
 `Preparing` ou `Waiting` expira após dez minutos e encerra o processo.
 
-## Ticks
+## Quadros
 
-O Sarcade oferece ao `ServerCore` oportunidades de apresentação a 60 Hz, com
+O Sarcade oferece ao `Room` oportunidades de apresentação a 60 Hz, com
 política de descartar atrasos. O Sinteract impede que uma view escolha outro
 jogador e coordena o fluxo de quadros.
 
 Em jogos Sgleam, `world` e `mworld` conservam seu próprio relógio lógico no
-`tick_rate` do jogo. O `Tick` recebido pelo `Stage` apresenta a cena mais
+`tick_rate` do jogo. O `Frame` recebido pelo `Stage` apresenta a cena mais
 recente e não chama `on_tick` diretamente. Cada passo lógico tem delta fixo
 implícito de `1 / tick_rate`; atrasos grandes não geram rajadas de recuperação.

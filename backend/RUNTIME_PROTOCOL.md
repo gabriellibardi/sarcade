@@ -14,7 +14,7 @@ receber submissões; jogos publicados continuam executáveis em builds `active`
 ou `deprecated`. O intervalo declarado pode conter no máximo 16 jogadores.
 
 A identidade de um build Sgleam combina versão e commit (por exemplo,
-`sgleam-0.9.0-341e33a`). O manifesto indicado por `RUNTIME_MANIFEST` pode
+`sgleam-0.9.0-c91adbc`). O manifesto indicado por `RUNTIME_MANIFEST` pode
 instalar vários builds. O backend valida identificadores, caminho, SHA-256,
 saída de `--version` e versão do protocolo antes de abrir a porta HTTP.
 
@@ -26,18 +26,19 @@ não é persistido no banco. A ausência de executor não ativa uma simulação.
 Para cada sessão, o backend cria um diretório aleatório com permissão `0700`
 em Unix e grava `game.<extensão>` com permissão `0600`. A extensão aceita
 somente um identificador ASCII, e o digest do arquivo é comparado ao da
-revisão. O caminho materializado é o único argumento entregue ao executor e o
+revisão. O backend executa `sgleam server game.<extensão>`, e o caminho
+materializado é o único argumento posicional do subcomando `server`. O
 diretório é removido ao encerrar a sessão, inclusive após falhas.
 
 ## Sessão Sinteract
 
-O processo recebe `SINTERACT_SESSION=1`. O descritor 3 transporta servidor →
-engine e o descritor 4 transporta engine → servidor, conforme o contrato
-versionado no submódulo Sinteract. `stdin` e `stdout` são descartados;
-`stderr` fica disponível para diagnóstico e nunca transporta mensagens da
-sessão.
+O subcomando `server` abre a sessão pelos descritores fixos. O descritor 3
+transporta servidor → engine e o descritor 4 transporta engine → servidor,
+conforme o contrato versionado no submódulo Sinteract. O processo recebe um
+ambiente vazio; `stdin` e `stdout` são descartados, e `stderr` fica disponível
+para diagnóstico e nunca transporta mensagens da sessão.
 
-Uma tarefa Tokio possui o processo, `LobbyCore`, `ServerCore`, os pipes, o
+Uma tarefa Tokio possui o processo, `Lobby`, `Room`, os pipes, o
 relógio e uma fila limitada a 128 comandos. Nenhum I/O do processo ocorre sob
 o mutex global das salas. Partidas e inspeções compartilham um semáforo global,
 configurável por `MAX_RUNTIME_PROCESSES` e limitado a 256. A vaga acompanha o
@@ -54,9 +55,9 @@ ciclo de vida do processo e é liberada também em falhas. O ciclo é:
 7. ao fechar, o backend encerra o pipe, espera até dois segundos e mata o
    processo se ele não terminar.
 
-O servidor oferece oportunidades de apresentação a 60 Hz e descarta ticks
+O servidor oferece oportunidades de apresentação a 60 Hz e descarta quadros
 atrasados. No Sgleam, isso não redefine o relógio lógico de `world`/`mworld`:
-`Tick` do `Stage` apresenta a cena mais recente, enquanto `on_tick` evolui no
+`Frame` do `Stage` apresenta a cena mais recente, enquanto `on_tick` evolui no
 `tick_rate` declarado pelo jogo, com delta fixo implícito de
 `1 / tick_rate`.
 
@@ -65,8 +66,8 @@ atrasados. No Sgleam, isso não redefine o relógio lógico de `world`/`mworld`:
 O mesmo WebSocket `sarcade.room.v1` usa mensagens JSON textuais para o lobby e
 payloads Sinteract binários durante `Running`. O navegador não envia
 `player_id`: a conexão e sua geração determinam o assento. O backend entrega
-o binário a `ServerCore::from_view` e encaminha a saída de
-`ServerCore::next_for` apenas à conexão correspondente.
+o binário a `Room::from_view` e encaminha a saída de `Room::next_for` apenas à
+conexão correspondente.
 
 Mensagens e frames recebidos pelo WebSocket têm limite de 64 KiB. O envio a
 um cliente tem timeout de dois segundos; um consumidor atrasado é desconectado
