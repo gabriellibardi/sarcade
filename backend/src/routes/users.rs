@@ -66,15 +66,15 @@ mod tests {
     use axum::extract::{Path, State};
     use rusqlite::Connection;
 
-    use backend::game_runtime::version::SGLEAM_BUILD_ID;
-
     use super::get_user_profile;
+    use crate::db::{TEST_RUNTIME_BUILD_ID, install_test_runtime};
 
     #[tokio::test]
     async fn public_profile_contains_only_published_games_and_safe_user_fields() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         crate::db::initialize_schema(&conn).unwrap();
+        install_test_runtime(&conn, "active").unwrap();
         conn.execute(
             "INSERT INTO users (email, name, avatar) VALUES ('privado@example.com', 'Autor', 'https://example.com/avatar.png')",
             [],
@@ -94,7 +94,7 @@ mod tests {
                 (1, 1, ?1, 'Publicado', 'Visível', 'fonte publicada', 'approved', '2026-01-01 00:00:00'),
                 (2, 1, ?1, 'Pendente', 'Oculto', 'fonte pendente', 'pending', NULL)
             ",
-            [SGLEAM_BUILD_ID],
+            [TEST_RUNTIME_BUILD_ID],
         )
         .unwrap();
         let db = Arc::new(Mutex::new(conn));

@@ -8,10 +8,7 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use backend::game_runtime::{
-    MAX_PLAYERS_PER_GAME, RuntimeSpec,
-    version::{SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SINTERACT_PROTOCOL_VERSION},
-};
+use backend::game_runtime::{MAX_PLAYERS_PER_GAME, RuntimeSpec};
 
 use crate::{
     auth::current_user,
@@ -107,10 +104,14 @@ fn reserve_runtime_process(
 }
 
 fn executable_for(state: &AppState, spec: &RuntimeSpec) -> Result<PathBuf, (StatusCode, String)> {
-    if spec.runtime() != "sgleam"
-        || spec.runtime_build_id() != SGLEAM_BUILD_ID
-        || spec.git_commit() != Some(SGLEAM_GIT_COMMIT)
-        || spec.validate_protocol(SINTERACT_PROTOCOL_VERSION).is_err()
+    let installed = state.runtimes.get(spec.runtime_build_id()).ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Ambiente de execução indisponível para criar a sala".into(),
+    ))?;
+    if !installed.matches_spec(spec)
+        || spec
+            .validate_protocol(installed.protocol_version())
+            .is_err()
     {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -124,14 +125,7 @@ fn executable_for(state: &AppState, spec: &RuntimeSpec) -> Result<PathBuf, (Stat
         ));
     }
 
-    state
-        .sgleam_executable
-        .as_ref()
-        .map(|executable| executable.path().to_path_buf())
-        .ok_or((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Ambiente de execução indisponível para criar a sala".into(),
-        ))
+    Ok(installed.executable().to_path_buf())
 }
 
 pub async fn get_room(
@@ -244,7 +238,7 @@ fn get_runtime_spec(db: &Db, game_id: i64) -> Result<RuntimeSpec, (StatusCode, S
             WHERE game_revisions.game_id = ?1
               AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
-              AND runtime_builds.status IN ('development', 'active')
+              AND runtime_builds.status IN ('active', 'deprecated')
             ORDER BY
                 COALESCE(
                     game_revisions.reviewed_at,
@@ -300,11 +294,11 @@ mod tests {
 
     use rusqlite::Connection;
 
-    use backend::game_runtime::version::{
-        SGLEAM_BUILD_ID, SGLEAM_GIT_COMMIT, SGLEAM_VERSION, SINTERACT_PROTOCOL_VERSION,
-    };
-
     use super::get_runtime_spec;
+    use crate::db::{
+        TEST_PROTOCOL_VERSION, TEST_RUNTIME_BUILD_ID, TEST_RUNTIME_COMMIT, TEST_RUNTIME_VERSION,
+        install_test_runtime,
+    };
 
     #[test]
     fn room_pins_the_latest_approved_revision_and_its_runtime_build() {
@@ -332,7 +326,7 @@ mod tests {
                     (1, 2, ?1, 'Jogo', 'Descrição', 'fonte aprovada', 'approved', 2, 4, '2026-02-01 00:00:00'),
                     (1, 3, 'spython-dev', 'Jogo futuro', 'Descrição futura', 'fonte pendente', 'pending', 8, 8, NULL)
                 ",
-                [SGLEAM_BUILD_ID],
+                [TEST_RUNTIME_BUILD_ID],
             )
             .unwrap();
         }
@@ -341,16 +335,13 @@ mod tests {
 
         assert_eq!(spec.game_id(), 1);
         assert_eq!(spec.revision_id(), 2);
-        assert_eq!(spec.runtime_build_id(), SGLEAM_BUILD_ID);
+        assert_eq!(spec.runtime_build_id(), TEST_RUNTIME_BUILD_ID);
         assert_eq!(spec.runtime(), "sgleam");
-        assert_eq!(spec.display_version(), SGLEAM_VERSION);
-        assert_eq!(spec.git_commit(), Some(SGLEAM_GIT_COMMIT));
-        assert_eq!(
-            spec.protocol_version(),
-            Some(i64::from(SINTERACT_PROTOCOL_VERSION))
-        );
+        assert_eq!(spec.display_version(), TEST_RUNTIME_VERSION);
+        assert_eq!(spec.git_commit(), Some(TEST_RUNTIME_COMMIT));
+        assert_eq!(spec.protocol_version(), Some(TEST_PROTOCOL_VERSION));
         assert_eq!(spec.source_extension(), ".gleam");
-        assert_eq!(spec.runtime_status(), "active");
+        assert_eq!(spec.runtime_status(), "deprecated");
         assert_eq!(spec.source_code(), "fonte aprovada");
         assert_eq!(spec.min_players(), 2);
         assert_eq!(spec.max_players(), 4);
@@ -360,6 +351,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         crate::db::initialize_schema(&conn).unwrap();
+        install_test_runtime(&conn, "deprecated").unwrap();
         Arc::new(Mutex::new(conn))
     }
 }

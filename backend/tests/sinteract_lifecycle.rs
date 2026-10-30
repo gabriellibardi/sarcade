@@ -1,8 +1,5 @@
 use std::{path::PathBuf, time::Duration};
 
-#[cfg(feature = "embedded-sgleam")]
-use backend::game_runtime::SgleamExecutable;
-#[cfg(feature = "embedded-sgleam")]
 use backend::game_runtime::inspect_sgleam_players;
 use backend::game_runtime::{
     RuntimeSpec, SinteractCommandError, SinteractHandle, SinteractOutput, SinteractPlayer,
@@ -86,12 +83,12 @@ async fn sinteract_session_fails_before_ready_when_the_engine_cannot_start() {
     ));
 }
 
-#[cfg(feature = "embedded-sgleam")]
 #[tokio::test]
-async fn embedded_sgleam_runs_a_multiplayer_world() {
-    let executable = SgleamExecutable::configured(None).unwrap().unwrap();
-    let (runtime, mut statuses) =
-        SinteractHandle::reserve(sgleam_runtime_spec(), executable.path().to_path_buf());
+async fn installed_sgleam_runs_a_multiplayer_world() {
+    let Some(executable) = installed_sgleam() else {
+        return;
+    };
+    let (runtime, mut statuses) = SinteractHandle::reserve(sgleam_runtime_spec(), executable);
     let mut changes = runtime.subscribe();
 
     assert_eq!(next_status(&mut statuses).await, SinteractStatus::Ready);
@@ -135,19 +132,19 @@ async fn embedded_sgleam_runs_a_multiplayer_world() {
     runtime.stop().await.unwrap();
 }
 
-#[cfg(feature = "embedded-sgleam")]
 #[tokio::test]
-async fn embedded_sgleam_inspection_reads_world_and_mworld_limits() {
-    let executable = SgleamExecutable::configured(None).unwrap().unwrap();
+async fn installed_sgleam_inspection_reads_world_and_mworld_limits() {
+    let Some(executable) = installed_sgleam() else {
+        return;
+    };
     let single = inspect_sgleam_players(
-        executable.path().to_path_buf(),
+        executable.clone(),
         r#"import sgleam/fill
 import sgleam/image
 import sgleam/world
 
-pub fn main() {
+pub fn smain() {
   world.create(0, fn(_) { image.rectangle(10, 10, fill.black) })
-  |> world.run()
 }
 "#
         .into(),
@@ -156,16 +153,15 @@ pub fn main() {
     .await
     .unwrap();
     let multiplayer = inspect_sgleam_players(
-        executable.path().to_path_buf(),
+        executable,
         r#"import sgleam/fill
 import sgleam/image
 import sgleam/mworld
 
-pub fn main() {
+pub fn smain() {
   mworld.create(0, min: 2, max: 4, to_image: fn(_, _) {
     image.rectangle(10, 10, fill.black)
   })
-  |> mworld.run()
 }
 "#
         .into(),
@@ -222,7 +218,6 @@ fn runtime_spec() -> RuntimeSpec {
     )
 }
 
-#[cfg(feature = "embedded-sgleam")]
 fn sgleam_runtime_spec() -> RuntimeSpec {
     RuntimeSpec::new(
         7,
@@ -238,7 +233,7 @@ fn sgleam_runtime_spec() -> RuntimeSpec {
 import sgleam/image
 import sgleam/mworld
 
-pub fn main() {
+pub fn smain() {
   mworld.create(0, min: 2, max: 2, to_image: fn(state, player) {
     image.rectangle(
       320 + state,
@@ -248,11 +243,14 @@ pub fn main() {
   })
   |> mworld.tick_rate(20)
   |> mworld.on_tick(fn(state) { state + 1 })
-  |> mworld.run()
 }
 "#
         .into(),
         2,
         2,
     )
+}
+
+fn installed_sgleam() -> Option<PathBuf> {
+    std::env::var_os("SGLEAM_TEST_EXECUTABLE").map(PathBuf::from)
 }

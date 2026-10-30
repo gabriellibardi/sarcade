@@ -25,6 +25,12 @@ ambiente é limpo, o código materializado é conferido por SHA-256, `stdin` e
 `stdout` não transportam a sessão e o processo é encerrado com prazo limitado.
 Filas, mensagens e diagnóstico possuem limites.
 
+Os executáveis de runtime são externos ao binário do Sarcade. Na inicialização,
+o backend confere o SHA-256, a versão, o commit e o protocolo declarados no
+manifesto. Em produção, instale manifesto e executáveis como arquivos somente
+leitura para a conta do serviço; cada build é selecionado pelo identificador
+imutável armazenado na revisão.
+
 Um semáforo compartilhado impede criação ilimitada de processos. O padrão é
 32 processos simultâneos; `MAX_RUNTIME_PROCESSES` aceita de 1 a 256. O limite
 inclui inspeções e partidas e a vaga é devolvida em encerramento, falha ou

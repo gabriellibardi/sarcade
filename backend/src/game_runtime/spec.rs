@@ -121,7 +121,10 @@ impl RuntimeSpec {
     }
 
     pub fn validate_protocol(&self, expected_protocol: u32) -> Result<(), RuntimeSpecError> {
-        if !matches!(self.runtime_status.as_str(), "development" | "active") {
+        if !matches!(
+            self.runtime_status.as_str(),
+            "development" | "active" | "deprecated"
+        ) {
             return Err(RuntimeSpecError::Unavailable);
         }
 

@@ -122,11 +122,11 @@ promovidos e usuários removidos dela perdem o acesso administrativo. Também é
 o papel pelo selo **Admin** no cabeçalho ou pelo campo `is_admin: true` retornado por
 `GET /api/auth/me`.
 
-## Binário autocontido
+## Artefatos de execução
 
-O frontend continua incorporado ao executável Rust. As bibliotecas do OAuth também são compiladas
-no mesmo binário; em execução, são necessárias somente as variáveis de ambiente, o banco SQLite e
-acesso HTTPS aos serviços do Google.
+O frontend continua incorporado ao executável Rust. Os runtimes de jogos são
+executáveis externos: cada servidor instala um ou mais builds e aponta
+`RUNTIME_MANIFEST` para o catálogo que descreve esses artefatos.
 
 ### Compilação
 
@@ -145,20 +145,14 @@ verify-sources` também
 recusa submódulos ausentes, em commits diferentes ou com alterações locais, e
 confere que o Sgleam e o Sarcade usam o mesmo commit do Sinteract.
 
-O build de release compila o Sgleam para MUSL e incorpora o executável ao
-binário do Sarcade. Na inicialização, o backend materializa uma cópia privada
-desse runtime e a reutiliza em todas as partidas. Assim, o servidor não precisa
-de um executável Sgleam instalado à parte.
-
-Em um build de desenvolvimento sem o runtime incorporado, `SGLEAM_EXECUTABLE`
-pode indicar um executável externo. A variável também substitui o runtime
-incorporado quando está definida. O executável substituto deve corresponder ao
-mesmo build Sgleam fixado pelo checkout; a variável não altera a identidade do
-runtime registrada nas revisões. Na inicialização, o backend executa
-`--version` e recusa uma versão ou commit diferente:
+O manifesto aceita vários builds simultâneos. Para cada um, registra identidade,
+versão, commit, protocolo Sinteract, extensão, estado, caminho e SHA-256. Na
+inicialização, o backend confere o hash e a saída de `--version`; manifesto
+ausente, executável ausente ou metadados divergentes encerram a inicialização.
+O caminho pode ser absoluto ou relativo ao diretório do manifesto:
 
 ```sh
-SGLEAM_EXECUTABLE=/caminho/para/sgleam
+RUNTIME_MANIFEST=/opt/sarcade/runtimes.json
 MAX_RUNTIME_PROCESSES=32
 ```
 
@@ -168,34 +162,40 @@ Na primeira vez, prepare as dependências e o target MUSL:
 make setup
 ```
 
-Nas compilações seguintes, execute na raiz do projeto:
+Para compilar somente o frontend e o backend:
 
 ```sh
 make
 ```
 
-Esse comando compila primeiro o frontend e depois executa o build release do backend para
-`x86_64-unknown-linux-musl`. O mesmo target produz o Sgleam incorporado, por
-isso ambos funcionam em distribuições como o NixOS sem um carregador dinâmico
-GNU. O binário autocontido será criado em
+O binário será criado em
 `backend/target/x86_64-unknown-linux-musl/release/backend`.
 
+Para gerar um diretório de release com backend, runtime MUSL e manifesto:
+
+```sh
+make release-bundle
+RUNTIME_MANIFEST="$PWD/release/runtimes.json" ./release/bin/sarcade
+```
+
+O bundle inicial contém o build Sgleam fixado pelo checkout. Outros builds
+compatíveis podem ser instalados lado a lado e acrescentados ao array
+`runtimes` do manifesto. Cada réplica do Sarcade precisa receber os mesmos
+artefatos que pretende executar.
+
 Use `make check` para executar as verificações do frontend, os testes Rust, o
-Clippy e os cenários integrados no Sgleam incorporado. Estes últimos compilam
+Clippy e os cenários integrados no Sgleam externo. Estes últimos compilam
 programas `world` e `mworld`, inspecionam seus limites e executam uma sessão
 multiplayer com perspectivas distintas para dois participantes.
 
 ### Identidade do runtime
 
-Durante a compilação, o backend deriva do checkout uma identidade imutável no
-formato `sgleam-<versão>-<commit curto>`, além do commit completo do Sgleam e
-da versão do protocolo Sinteract. Esses valores alimentam o cadastro de builds
-no SQLite. Cada revisão passa a apontar para essa identidade exata; o antigo
-`sgleam-dev` é migrado uma única vez para o build atualmente incorporado e
-depois fica indisponível.
+Cada revisão aponta para uma identidade imutável, no formato recomendado
+`sgleam-<versão>-<commit curto>`. Ao iniciar, o backend sincroniza no SQLite os
+builds instalados e marca builds ausentes como `unavailable`, sem reatribuir
+revisões a uma versão diferente.
 
-Atualizar Sgleam ou Sinteract exige atualizar os gitlinks, gerar uma nova
-migração/cadastro de build e validar os jogos antes de tornar o novo build o
-padrão. Builds antigos não são silenciosamente executados por um binário novo.
-Isso torna as entradas e a compatibilidade do artefato rastreáveis; não é uma
-promessa de que dois compiladores/sistemas distintos produzam bytes idênticos.
+Builds `development` e `active` aceitam novas submissões; somente `active` pode
+ser padrão. Um build `deprecated` permanece instalado para executar jogos já
+publicados, mas não recebe novas submissões. Remova seu executável apenas
+quando nenhuma revisão que precise continuar disponível depender dele.

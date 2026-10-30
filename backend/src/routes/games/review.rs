@@ -134,11 +134,12 @@ mod tests {
     use axum_extra::extract::cookie::{Cookie, CookieJar};
     use rusqlite::Connection;
 
-    use backend::game_runtime::version::SGLEAM_BUILD_ID;
+    use backend::game_runtime::RuntimeCatalog;
 
     use super::{RejectRequest, approve_revision, reject_revision};
     use crate::{
         auth::{AuthService, SESSION_COOKIE, hash_token},
+        db::{TEST_RUNTIME_BUILD_ID, install_test_runtime},
         routes::games::{author::create_editable_revision, author::submit_draft, list::get_game},
         state::AppState,
     };
@@ -178,7 +179,7 @@ mod tests {
         let published = get_game(State(fixture.state.db), Path(1)).await.unwrap().0;
         let published = serde_json::to_value(published).unwrap();
         assert_eq!(published["revision_id"], 1);
-        assert_eq!(published["runtime_build_id"], SGLEAM_BUILD_ID);
+        assert_eq!(published["runtime_build_id"], TEST_RUNTIME_BUILD_ID);
         assert_eq!(published["min_players"], 2);
         assert_eq!(published["max_players"], 2);
         assert!(published.get("source_code").is_none());
@@ -259,6 +260,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         crate::db::initialize_schema(&conn).unwrap();
+        install_test_runtime(&conn, "active").unwrap();
         conn.execute_batch(
             "
             INSERT INTO users (id, email, name, is_admin) VALUES
@@ -286,7 +288,7 @@ mod tests {
                 title, description, source_code, min_players, max_players, status
             ) VALUES (1, 1, 1, 1, ?1, 'Jogo', 'Descrição', 'fonte aprovada', 2, 2, 'draft')
             ",
-            [SGLEAM_BUILD_ID],
+            [TEST_RUNTIME_BUILD_ID],
         )
         .unwrap();
 
@@ -294,7 +296,7 @@ mod tests {
             state: AppState::new(
                 Arc::new(Mutex::new(conn)),
                 AuthService::new(None, vec![]),
-                None,
+                RuntimeCatalog::default(),
                 4,
             ),
             author: jar("author-token"),

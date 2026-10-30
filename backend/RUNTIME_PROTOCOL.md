@@ -9,23 +9,19 @@ disponíveis no cadastro de builds.
 ## Seleção e preparação
 
 Uma sala fixa um `RuntimeSpec` com a revisão, o build, o código-fonte, o
-SHA-256 e os limites de jogadores. Somente builds com estado `development` ou
-`active` podem ser publicados ou usados para abrir uma sala. O intervalo
-declarado pode conter no máximo 16 jogadores.
+SHA-256 e os limites de jogadores. Builds `development` e `active` podem
+receber submissões; jogos publicados continuam executáveis em builds `active`
+ou `deprecated`. O intervalo declarado pode conter no máximo 16 jogadores.
 
-O build Sgleam disponível não é um alias mutável: sua identidade combina a
-versão e o commit do submódulo (por exemplo, `sgleam-0.8.0-efa0773`), e o
-cadastro guarda também o commit completo e a versão do protocolo Sinteract.
-A migração do schema 4 converte referências antigas a `sgleam-dev` para esse
-build exato. Um build depreciado permanece no histórico, mas não abre novas
-salas nem recebe submissões.
+A identidade de um build Sgleam combina versão e commit (por exemplo,
+`sgleam-0.9.0-341e33a`). O manifesto indicado por `RUNTIME_MANIFEST` pode
+instalar vários builds. O backend valida identificadores, caminho, SHA-256,
+saída de `--version` e versão do protocolo antes de abrir a porta HTTP.
 
-O build de release incorpora o executável Sgleam. Na inicialização, o backend
-materializa uma cópia privada que pode ser substituída, em desenvolvimento,
-por `SGLEAM_EXECUTABLE`. A ausência do executável não muda a semântica da
-partida nem ativa uma simulação; ela deixa o runtime indisponível.
-Quando há executável, o backend confere sua saída de `--version` contra a
-versão e o commit compilados no servidor antes de aceitar requisições.
+O catálogo instalado é sincronizado com `runtime_builds` no SQLite. Um build
+ausente fica `unavailable`; suas revisões não são transferidas silenciosamente
+para outro runtime. O caminho do executável pertence à configuração do host e
+não é persistido no banco. A ausência de executor não ativa uma simulação.
 
 Para cada sessão, o backend cria um diretório aleatório com permissão `0700`
 em Unix e grava `game.<extensão>` com permissão `0600`. A extensão aceita
@@ -92,11 +88,11 @@ formulário.
 
 Os testes de ciclo de vida podem iniciar o próprio binário do backend no
 subcomando privado `sinteract-test-engine`. Essa fixture implementa a sessão
-Sinteract real e nunca é selecionada por uma sala de produção. O teste com a
-feature `embedded-sgleam` executa um `mworld` de dois jogadores no executável
-incorporado e valida quadros distintos e evolução lógica.
+Sinteract real e nunca é selecionada por uma sala de produção. Os testes com
+`SGLEAM_TEST_EXECUTABLE` executam um `mworld` de dois jogadores no runtime
+externo e validam quadros distintos e evolução lógica.
 
 `make check` também compila o runtime fixado e executa automaticamente os
-cenários `embedded_sgleam`: identidade do executável, inspeção de limites de
-`world`/`mworld` e partida com dois participantes. Assim, a integração real não
-depende apenas do teste manual em navegadores.
+cenários `installed_sgleam`: inspeção de limites de `world`/`mworld` e partida
+com dois participantes. Assim, a integração real não depende apenas do teste
+manual em navegadores.

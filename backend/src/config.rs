@@ -17,7 +17,7 @@ pub struct Config {
     pub database_url: String,
     pub google_oauth: Option<GoogleOAuthConfig>,
     pub admin_emails: Vec<String>,
-    pub sgleam_executable: Option<PathBuf>,
+    pub runtime_manifest: PathBuf,
     pub max_runtime_processes: usize,
 }
 
@@ -33,7 +33,9 @@ impl Config {
         let public_base_url =
             non_empty_env("PUBLIC_BASE_URL").map(|value| value.trim_end_matches('/').to_string());
         let admin_emails = comma_separated_env("ADMIN_EMAILS");
-        let sgleam_executable = non_empty_env("SGLEAM_EXECUTABLE").map(PathBuf::from);
+        let runtime_manifest = non_empty_env("RUNTIME_MANIFEST")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("runtimes.json"));
         let max_runtime_processes = runtime_process_limit();
 
         let client_id = non_empty_env("GOOGLE_CLIENT_ID");
@@ -72,7 +74,7 @@ impl Config {
             database_url,
             google_oauth,
             admin_emails,
-            sgleam_executable,
+            runtime_manifest,
             max_runtime_processes,
         }
     }

@@ -1,3 +1,4 @@
 .env
 .tool-versions
 tmp/
+/release/

@@ -68,7 +68,7 @@ pub async fn list_approved_games(
         LEFT JOIN users ON users.id = games.author_id
         WHERE game_revisions.status = 'approved'
           AND games.archived_at IS NULL
-          AND runtime_builds.status IN ('development', 'active')
+          AND runtime_builds.status IN ('active', 'deprecated')
           AND game_revisions.id = (
               SELECT latest.id
               FROM game_revisions AS latest
@@ -78,7 +78,7 @@ pub async fn list_approved_games(
                     SELECT 1
                     FROM runtime_builds AS latest_runtime
                     WHERE latest_runtime.id = latest.runtime_build_id
-                      AND latest_runtime.status IN ('development', 'active')
+                      AND latest_runtime.status IN ('active', 'deprecated')
                 )
               ORDER BY COALESCE(latest.reviewed_at, latest.created_at) DESC, latest.id DESC
               LIMIT 1
@@ -125,7 +125,7 @@ pub async fn get_game(
             WHERE games.id = ?1
               AND games.archived_at IS NULL
               AND game_revisions.status = 'approved'
-              AND runtime_builds.status IN ('development', 'active')
+              AND runtime_builds.status IN ('active', 'deprecated')
             ORDER BY COALESCE(game_revisions.reviewed_at, game_revisions.created_at) DESC,
                      game_revisions.id DESC
             LIMIT 1
@@ -156,7 +156,7 @@ pub(crate) fn list_approved_games_by_author(
         WHERE games.author_id = ?1
           AND games.archived_at IS NULL
           AND game_revisions.status = 'approved'
-          AND runtime_builds.status IN ('development', 'active')
+          AND runtime_builds.status IN ('active', 'deprecated')
           AND game_revisions.id = (
               SELECT latest.id
               FROM game_revisions AS latest
@@ -166,7 +166,7 @@ pub(crate) fn list_approved_games_by_author(
                     SELECT 1
                     FROM runtime_builds AS latest_runtime
                     WHERE latest_runtime.id = latest.runtime_build_id
-                      AND latest_runtime.status IN ('development', 'active')
+                      AND latest_runtime.status IN ('active', 'deprecated')
                 )
               ORDER BY COALESCE(latest.reviewed_at, latest.created_at) DESC, latest.id DESC
               LIMIT 1
@@ -433,14 +433,14 @@ mod tests {
     };
     use rusqlite::Connection;
 
-    use backend::game_runtime::version::SGLEAM_BUILD_ID;
-
     use super::get_game;
+    use crate::db::{TEST_RUNTIME_BUILD_ID, install_test_runtime};
 
     fn test_db() -> Arc<Mutex<Connection>> {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         crate::db::initialize_schema(&conn).unwrap();
+        install_test_runtime(&conn, "deprecated").unwrap();
         Arc::new(Mutex::new(conn))
     }
 
@@ -470,7 +470,7 @@ mod tests {
                     (1, 2, ?1, 'Jogo', 'Descrição', 'segredo atual', 'approved', 2, 4, 'nota atual', '2026-02-01 00:00:00'),
                     (1, 3, ?1, 'Jogo futuro', 'Descrição futura', 'ainda em revisão', 'pending', 8, 8, NULL, NULL)
                 ",
-                [SGLEAM_BUILD_ID],
+                [TEST_RUNTIME_BUILD_ID],
             )
             .unwrap();
         }
