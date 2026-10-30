@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "Se você utilizar o Sarcade, cite este software."
+title: "Sarcade"
+type: software
+authors:
+  - family-names: "Lulu"
+    given-names: "Gabriel Libardi"
+version: "tcc-2026"
+date-released: 2026-10-30
+repository-code: "https://github.com/gabriellibardi/sarcade"
+license: MIT

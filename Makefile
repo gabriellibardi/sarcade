@@ -61,7 +61,7 @@ help:
 		'make release-bundle Gera backend, runtime externo e manifesto' \
 		'make setup    Instala as dependências e o target MUSL' \
 		'make check    Executa as verificações do frontend e do backend' \
-		'make check-runtime Testa inspeção e partidas no Sgleam incorporado' \
+		'make check-runtime Testa inspeção e partidas no Sgleam externo' \
 		'make verify-sources Confere os commits dos runtimes fixados' \
 		'make frontend Compila somente o frontend' \
 		'make sgleam-runtime Compila o executável Sgleam MUSL externo'

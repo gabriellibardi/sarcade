@@ -1,4 +1,5 @@
 .env
 .tool-versions
+/arcade.db
 tmp/
 /release/

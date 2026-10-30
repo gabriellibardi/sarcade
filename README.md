@@ -203,3 +203,14 @@ Builds `development` e `active` aceitam novas submissões; somente `active` pode
 ser padrão. Um build `deprecated` permanece instalado para executar jogos já
 publicados, mas não recebe novas submissões. Remova seu executável apenas
 quando nenhuma revisão que precise continuar disponível depender dele.
+
+## Versão do TCC e citação
+
+A versão utilizada na monografia está marcada pela tag `tcc-2026`. O arquivo
+[`CITATION.cff`](CITATION.cff) contém os metadados para citar o software e a
+tag fixa também os commits dos submódulos Sgleam e Sinteract usados no build.
+
+## Licença
+
+O código próprio do Sarcade é distribuído sob a licença MIT. Os submódulos e
+demais dependências conservam suas respectivas licenças.
