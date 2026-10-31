@@ -944,6 +944,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn room_enforces_minimum_and_maximum_player_limits() {
+        let store = new_store();
+        let below_minimum = create_test_room(&store, runtime_spec());
+        let host = join_room(
+            &store,
+            &below_minimum.code,
+            "Host".into(),
+            Some(below_minimum.host_token),
+            None,
+        )
+        .unwrap();
+        store
+            .lock()
+            .unwrap()
+            .get_mut(&below_minimum.code)
+            .unwrap()
+            .status = RoomStatus::Waiting;
+
+        assert!(matches!(
+            start_room(
+                &store,
+                &below_minimum.code,
+                host.player_id,
+                host.connection_generation,
+            ),
+            Err(RoomError::InsufficientPlayers),
+        ));
+
+        let at_capacity = create_test_room(&store, runtime_spec());
+        join_room(
+            &store,
+            &at_capacity.code,
+            "Primeira".into(),
+            Some(at_capacity.host_token),
+            None,
+        )
+        .unwrap();
+        for nickname in ["Segunda", "Terceira", "Quarta", "Quinta", "Sexta"] {
+            join_room(&store, &at_capacity.code, nickname.into(), None, None).unwrap();
+        }
+
+        assert!(matches!(
+            join_room(&store, &at_capacity.code, "Sétima".into(), None, None),
+            Err(RoomError::Full),
+        ));
+    }
+
+    #[tokio::test]
     async fn host_departure_promotes_the_oldest_remaining_player() {
         let store = new_store();
         let created = create_test_room(&store, runtime_spec());
@@ -1212,6 +1260,80 @@ mod tests {
         ));
         drop(rooms);
         assert!(limiter.try_acquire_owned().is_ok());
+    }
+
+    #[tokio::test]
+    async fn runtime_failure_in_one_room_does_not_change_another_room() {
+        let store = new_store();
+        let (failed_runtime, failed_output, failed_statuses) = SinteractHandle::simulated();
+        let failed = create_room_with_runtime(
+            &store,
+            runtime_spec(),
+            failed_runtime,
+            failed_statuses,
+            false,
+            None,
+        )
+        .unwrap();
+        let (healthy_runtime, healthy_output, healthy_statuses) = SinteractHandle::simulated();
+        let healthy = create_room_with_runtime(
+            &store,
+            runtime_spec(),
+            healthy_runtime,
+            healthy_statuses,
+            false,
+            None,
+        )
+        .unwrap();
+        let mut failed_events = store
+            .lock()
+            .unwrap()
+            .get(&failed.code)
+            .unwrap()
+            .tx
+            .subscribe();
+        let mut healthy_events = store
+            .lock()
+            .unwrap()
+            .get(&healthy.code)
+            .unwrap()
+            .tx
+            .subscribe();
+
+        failed_output.send(SinteractStatus::Ready).await.unwrap();
+        healthy_output.send(SinteractStatus::Ready).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), failed_events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), healthy_events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        failed_output
+            .send(SinteractStatus::Failed("fixture encerrou".into()))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), failed_events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let rooms = store.lock().unwrap();
+        assert!(matches!(
+            rooms.get(&failed.code).unwrap().status,
+            RoomStatus::Failed
+        ));
+        assert!(matches!(
+            rooms.get(&healthy.code).unwrap().status,
+            RoomStatus::Waiting
+        ));
+        drop(rooms);
+        assert!(
+            join_room(&store, &healthy.code, "Jogadora".into(), None, None).is_ok(),
+            "a sala saudável deve continuar aceitando participantes",
+        );
     }
 
     #[tokio::test]

@@ -133,6 +133,47 @@ async fn installed_sgleam_runs_a_multiplayer_world() {
 }
 
 #[tokio::test]
+async fn installed_sgleam_keeps_serving_an_active_view_when_another_is_not_drained() {
+    let Some(executable) = installed_sgleam() else {
+        return;
+    };
+    let (runtime, mut statuses) = SinteractHandle::reserve(sgleam_runtime_spec(), executable);
+    let mut changes = runtime.subscribe();
+
+    assert_eq!(next_status(&mut statuses).await, SinteractStatus::Ready);
+    runtime
+        .start(vec![
+            SinteractPlayer {
+                id: 41,
+                nickname: "Ativa".into(),
+            },
+            SinteractPlayer {
+                id: 73,
+                nickname: "Lenta".into(),
+            },
+        ])
+        .await
+        .unwrap();
+
+    let active = runtime.connect(41).await.unwrap();
+    let slow = runtime.connect(73).await.unwrap();
+    let mut active_reader = FrameReader::new();
+    let first = next_frame(&runtime, &mut changes, active).await;
+    let first_scene = active_reader.read(&first).unwrap().unwrap();
+    let first_width = first_scene.width();
+
+    let second = next_frame(&runtime, &mut changes, active).await;
+    let second_scene = active_reader.read(&second).unwrap().unwrap();
+    assert!(second_scene.width() > first_width);
+
+    let slow_frame = next_frame(&runtime, &mut changes, slow).await;
+    let mut slow_reader = FrameReader::new();
+    assert!(slow_reader.read(&slow_frame).unwrap().is_some());
+
+    runtime.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn installed_sgleam_inspection_reads_world_and_mworld_limits() {
     let Some(executable) = installed_sgleam() else {
         return;
