@@ -108,6 +108,43 @@ iniciar a partida quando o mínimo de jogadores for alcançado.
 As garantias, a fronteira de confiança e as limitações de isolamento estão em
 [`backend/SECURITY.md`](backend/SECURITY.md).
 
+## Ensaio de desempenho RNF08
+
+O cliente `scripts/benchmark-rnf08.ts` reproduz o ensaio local usado na
+monografia. Ele mede:
+
+- a ida e volta de `GET /health`;
+- o intervalo entre `POST /api/rooms` e o primeiro snapshot `waiting`;
+- a chegada do primeiro frame cuja cena confirma a alteração do placar depois
+  de uma entrada; e
+- a estabilidade, CPU e memória de salas simultâneas com dois participantes.
+
+O ensaio usa o jogo de avaliação **Disputa de pontos**, cujo código está no
+[repositório da monografia](https://github.com/gabriellibardi/sarcade-thesis/blob/main/exemplos/disputa_pontos.gleam).
+A latência termina na chegada do frame ao cliente e não inclui a rasterização
+do canvas. Durante a medição de capacidade, cada conexão envia uma ação sem
+efeito no placar uma vez por segundo. CPU e memória abrangem o servidor e seus
+processos Sgleam.
+O percentual de CPU é a média desde o início do processo informada por `ps`,
+na qual 100% corresponde a um núcleo lógico.
+
+Inicie uma instância dedicada, identifique o jogo aprovado e o PID do servidor
+e execute, em Linux:
+
+```sh
+GAME_ID=6 SERVER_PID=12345 \
+OUTPUT=/tmp/rnf08-local.json \
+deno run --config sinteract/web/deno.json -A scripts/benchmark-rnf08.ts
+```
+
+Por padrão são feitas 30 repetições de preparação, 30 repetições de latência e
+16 salas por 600 segundos. `BASE_URL`, `PREPARATION_RUNS`, `LATENCY_RUNS`,
+`CAPACITY_ROOMS`, `CAPACITY_SECONDS`, `SAMPLE_SECONDS` e `TIMEOUT_MS` permitem
+configurar uma execução. O acesso integral do processo Deno é necessário para
+consultar a árvore dinâmica em `/proc`, executar `ps`, abrir WebSockets locais
+e gravar o resultado; por isso o comando deve ser usado apenas com este script
+versionado e em uma máquina de ensaio.
+
 ## Administradores
 
 `ADMIN_EMAILS` é a fonte de verdade para a função de administrador. Exemplo com mais de uma
