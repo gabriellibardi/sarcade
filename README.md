@@ -119,8 +119,8 @@ monografia. Ele mede:
   de uma entrada; e
 - a estabilidade, CPU e memória de salas simultâneas com dois participantes.
 
-O ensaio usa o jogo de avaliação **Disputa de pontos**, cujo código está no
-[repositório da monografia](https://github.com/gabriellibardi/sarcade-thesis/blob/main/exemplos/disputa_pontos.gleam).
+O ensaio usa o jogo de avaliação **Disputa de pontos**, disponível em
+[`scripts/fixtures/rnf08_disputa_pontos.gleam`](scripts/fixtures/rnf08_disputa_pontos.gleam).
 A latência termina na chegada do frame ao cliente e não inclui a rasterização
 do canvas. Durante a medição de capacidade, cada conexão envia uma ação sem
 efeito no placar uma vez por segundo. CPU e memória abrangem o servidor e seus
